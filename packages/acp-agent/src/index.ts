@@ -5,7 +5,6 @@ import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
-import "dotenv/config";
 import * as acp from "@agentclientprotocol/sdk";
 import {
   experimental_createMCPClient as createMCPClient,
@@ -25,10 +24,18 @@ type SessionState = {
 };
 
 const DEFAULT_SYSTEM_PROMPT =
-  "You are Fledgling, a small ACP-native assistant. Answer directly. Use tools only when they are available and useful. Tool results may include Fledgling context hints that describe identity, retention, and prompt placement for future context assembly.";
+  "You are Fledgling, a small ACP-native assistant. Answer directly. Use tools when they are available and useful. If the user asks you to inspect, create, modify, delete, search, or execute something in the workspace, use the relevant workspace tool instead of only describing what you would do. If the user asks you to write content to a file, call the file-writing tool. Do not claim you cannot access files when a relevant workspace tool is available. Tool results may include Fledgling context hints that describe identity, retention, and prompt placement for future context assembly.";
 
 type FledglingConfig = {
   readonly mcpServers?: Record<string, McpServerConfig>;
+};
+
+type McpOrigin = "acp_client" | "config" | "first_party";
+
+type ResolvedMcpServer = {
+  readonly name: string;
+  readonly origin: McpOrigin;
+  readonly config: McpServerConfig;
 };
 
 type McpServerConfig =
@@ -61,12 +68,18 @@ class FledglingAgent implements acp.Agent {
   public async initialize(_params: acp.InitializeRequest): Promise<acp.InitializeResponse> {
     return {
       protocolVersion: acp.PROTOCOL_VERSION,
-      agentCapabilities: {}
+      agentCapabilities: {
+        loadSession: false,
+        mcpCapabilities: {
+          http: true,
+          sse: true
+        }
+      }
     };
   }
 
   public async newSession(params: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
-    const { mcpClients, tools } = await createConfiguredTools(params.cwd);
+    const { mcpClients, tools } = await createSessionTools(params.cwd, params.mcpServers);
     const session: SessionState = {
       id: randomUUID(),
       cwd: params.cwd,
@@ -84,6 +97,10 @@ class FledglingAgent implements acp.Agent {
   }
 
   public async authenticate(_params: acp.AuthenticateRequest): Promise<acp.AuthenticateResponse> {
+    return {};
+  }
+
+  public async setSessionMode(_params: acp.SetSessionModeRequest): Promise<acp.SetSessionModeResponse> {
     return {};
   }
 
@@ -259,29 +276,87 @@ async function loadConfig(): Promise<FledglingConfig> {
   return JSON.parse(await readFile(configPath, "utf8")) as FledglingConfig;
 }
 
-async function createConfiguredTools(
-  sessionCwd: string | undefined
+async function createSessionTools(
+  sessionCwd: string | undefined,
+  clientMcpServers: acp.McpServer[]
 ): Promise<{ mcpClients: MCPClient[]; tools: ToolSet }> {
-  const config = await configPromise;
-  const entries = Object.entries(config.mcpServers ?? {});
+  const entries = await resolveMcpServers(clientMcpServers);
   const mcpClients: MCPClient[] = [];
   const tools: ToolSet = {};
 
-  for (const [serverName, serverConfig] of entries) {
+  for (const entry of entries) {
     const client = await createMCPClient({
-      name: `fledgling-${serverName}`,
-      transport: await createTransport(serverConfig, sessionCwd)
+      name: `fledgling-${entry.origin}-${entry.name}`,
+      transport: await createTransport(entry.config, sessionCwd)
     });
 
     const serverTools = await client.tools();
     for (const [toolName, tool] of Object.entries(serverTools)) {
-      tools[toExposedToolName(serverName, toolName)] = tool as unknown as ToolSet[string];
+      const exposedToolName = toExposedToolName(entry.name, toolName);
+      if (exposedToolName in tools) {
+        throw new Error(`MCP tool name collision after sanitization: ${exposedToolName}`);
+      }
+
+      tools[exposedToolName] = tool as unknown as ToolSet[string];
     }
 
     mcpClients.push(client);
   }
 
   return { mcpClients, tools };
+}
+
+async function resolveMcpServers(clientMcpServers: acp.McpServer[]): Promise<ResolvedMcpServer[]> {
+  const resolved = new Map<string, ResolvedMcpServer>();
+
+  for (const server of clientMcpServers) {
+    const name = sanitizeToolName(server.name);
+    resolved.set(name, {
+      name,
+      origin: "acp_client",
+      config: fromAcpMcpServer(server)
+    });
+  }
+
+  const config = await configPromise;
+  for (const [serverName, serverConfig] of Object.entries(config.mcpServers ?? {})) {
+    const name = sanitizeToolName(serverName);
+    if (resolved.has(name)) {
+      console.error(
+        JSON.stringify({
+          level: "warn",
+          message: "Skipping configured MCP server because ACP client provided the same server name.",
+          serverName: name
+        })
+      );
+      continue;
+    }
+
+    resolved.set(name, {
+      name,
+      origin: serverConfig.type === "firstPartyWorkspace" ? "first_party" : "config",
+      config: serverConfig
+    });
+  }
+
+  return [...resolved.values()];
+}
+
+function fromAcpMcpServer(server: acp.McpServer): McpServerConfig {
+  if ("type" in server) {
+    return {
+      type: server.type,
+      url: server.url,
+      headers: Object.fromEntries(server.headers.map((header: acp.HttpHeader) => [header.name, header.value]))
+    };
+  }
+
+  return {
+    type: "stdio",
+    command: server.command,
+    args: server.args,
+    env: Object.fromEntries(server.env.map((entry: acp.EnvVariable) => [entry.name, entry.value]))
+  };
 }
 
 async function createTransport(
