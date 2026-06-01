@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.4.3",
+    "@ai-sdk/mcp": "0.0.18",
     "@ai-sdk/openai": "^2.0.0",
+    "@fledgling/mcp-workspace": "workspace:*",
     "ai": "^5.0.0",
     "dotenv": "^17.0.0"
   },

@@ -1,0 +1,26 @@
+{
+  "name": "@fledgling/mcp-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Context-aware first-party workspace MCP server for Fledgling.",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "bin": {
+    "fledgling-mcp-workspace": "lib/index.js"
+  },
+  "scripts": {
+    "build": "heft build --clean"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.21.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@fledgling/heft-rig": "workspace:*",
+    "@rushstack/heft": "~0.75.0",
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.0"
+  }
+}

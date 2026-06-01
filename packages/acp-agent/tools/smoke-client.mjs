@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
 
 import * as acp from "@agentclientprotocol/sdk";
@@ -6,6 +8,12 @@ import * as acp from "@agentclientprotocol/sdk";
 const prompt =
   process.argv.slice(2).join(" ") ||
   "Dry run: reply with exactly: fledgling dry run ok";
+const sessionCwd = resolve(process.env.FLEDGLING_SMOKE_CWD || process.cwd());
+const childEnv = { ...process.env };
+
+if (!childEnv.FLEDGLING_CONFIG && existsSync("fledgling.config.example.json")) {
+  childEnv.FLEDGLING_CONFIG = "fledgling.config.example.json";
+}
 
 class SmokeClient {
   text = "";
@@ -16,6 +24,22 @@ class SmokeClient {
     if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text") {
       this.text += update.content.text;
       process.stdout.write(update.content.text);
+    } else if (update.sessionUpdate === "tool_call") {
+      console.error(
+        JSON.stringify({
+          toolCall: update.title,
+          status: update.status,
+          input: update.rawInput
+        })
+      );
+    } else if (update.sessionUpdate === "tool_call_update") {
+      console.error(
+        JSON.stringify({
+          toolCallId: update.toolCallId,
+          status: update.status,
+          output: update.rawOutput
+        })
+      );
     }
   }
 
@@ -34,6 +58,7 @@ class SmokeClient {
 
 const child = spawn(process.execPath, ["lib/index.js"], {
   cwd: process.cwd(),
+  env: childEnv,
   stdio: ["pipe", "pipe", "inherit"]
 });
 
@@ -50,7 +75,7 @@ try {
   });
 
   const session = await connection.newSession({
-    cwd: process.cwd(),
+    cwd: sessionCwd,
     mcpServers: []
   });
 
@@ -59,6 +84,7 @@ try {
       initialized: true,
       protocolVersion: init.protocolVersion,
       agentCapabilities: init.agentCapabilities,
+      cwd: sessionCwd,
       sessionId: session.sessionId
     })
   );

@@ -22,6 +22,7 @@ heft build --clean
 ```sh
 cd packages/acp-agent
 cp .env.example .env
+cp fledgling.config.example.json fledgling.config.json
 node lib/index.js
 ```
 
@@ -39,3 +40,18 @@ Optional environment variables:
 - `OPENAI_BASE_URL`: OpenAI-compatible base URL.
 - `OPENAI_MODEL`: model name, default `gpt-4.1-mini`.
 - `FLEDGLING_SYSTEM_PROMPT`: override the default system prompt.
+- `FLEDGLING_CONFIG`: path to a launch config, default `./fledgling.config.json`.
+- `FLEDGLING_OPENAI_API`: `chat` or `responses`, default `chat` for OpenAI-compatible local backends.
+- `FLEDGLING_TOOL_CHOICE`: optional debug override to force one tool, for example `workspace_list_directory`.
+
+Launch config supports MCP servers:
+
+```json
+{
+  "mcpServers": {
+    "workspace": {
+      "type": "firstPartyWorkspace"
+    }
+  }
+}
+```
