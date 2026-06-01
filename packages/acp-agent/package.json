@@ -12,6 +12,7 @@
   },
   "scripts": {
     "build": "heft build --clean",
+    "test:session-cleanup": "node tools/session-cleanup.test.mjs",
     "smoke": "node tools/smoke-client.mjs"
   },
   "dependencies": {

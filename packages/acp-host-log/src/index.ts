@@ -109,6 +109,7 @@ try {
   flushTranscript();
   logger.flush();
   child.kill();
+  await waitForChildExit();
 }
 
 type TranscriptEventName =
@@ -325,6 +326,30 @@ function getAgentArgs(): string[] {
   }
 
   return [fileURLToPath(import.meta.resolve("@fledgling/acp-agent"))];
+}
+
+function waitForChildExit(timeoutMs = 5_000): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      child.off("exit", finish);
+      resolve();
+    };
+
+    const timeout = setTimeout(finish, timeoutMs);
+    child.once("exit", finish);
+  });
 }
 
 function loadHostEnv(): void {

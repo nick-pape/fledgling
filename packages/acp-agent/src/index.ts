@@ -14,6 +14,8 @@ import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import { createOpenAI } from "@ai-sdk/openai";
 import { stepCountIs, streamText, type CoreMessage, type ToolSet } from "ai";
 
+import { serializeError, SessionCleanup } from "./session-cleanup.js";
+
 type SessionState = {
   readonly id: string;
   readonly cwd: string | undefined;
@@ -60,6 +62,10 @@ const configPromise = loadConfig();
 class FledglingAgent implements acp.Agent {
   readonly #connection: acp.AgentSideConnection;
   readonly #sessions = new Map<string, SessionState>();
+  readonly #sessionCleanup = new SessionCleanup(
+    () => this.#sessions.values(),
+    () => this.#sessions.clear()
+  );
 
   public constructor(connection: acp.AgentSideConnection) {
     this.#connection = connection;
@@ -235,6 +241,10 @@ class FledglingAgent implements acp.Agent {
 
   public async cancel(_params: acp.CancelNotification): Promise<void> {
     this.#sessions.get(_params.sessionId)?.pendingPrompt?.abort();
+  }
+
+  public closeAllSessions(reason: string): Promise<void> {
+    return this.#sessionCleanup.closeAll(reason);
   }
 }
 
@@ -458,4 +468,54 @@ const input = Writable.toWeb(process.stdout);
 const output = Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>;
 const stream = acp.ndJsonStream(input, output);
 
-new acp.AgentSideConnection((connection) => new FledglingAgent(connection), stream);
+let activeAgent: FledglingAgent | undefined;
+let shutdownPromise: Promise<void> | undefined;
+
+function shutdownAgent(reason: string): Promise<void> {
+  shutdownPromise ??= activeAgent?.closeAllSessions(reason) ?? Promise.resolve();
+  return shutdownPromise;
+}
+
+async function shutdownAndExit(reason: string, exitCode: number): Promise<void> {
+  await shutdownAgent(reason);
+  process.exit(exitCode);
+}
+
+function logFatal(event: string, error: unknown): void {
+  console.error(
+    JSON.stringify({
+      level: "error",
+      event,
+      error: serializeError(error)
+    })
+  );
+}
+
+process.once("SIGINT", () => {
+  void shutdownAndExit("SIGINT", 130);
+});
+
+process.once("SIGTERM", () => {
+  void shutdownAndExit("SIGTERM", 143);
+});
+
+process.once("beforeExit", () => {
+  void shutdownAgent("beforeExit").catch((error: unknown) => {
+    logFatal("shutdown_failed", error);
+  });
+});
+
+process.once("uncaughtException", (error: Error) => {
+  logFatal("uncaught_exception", error);
+  void shutdownAndExit("uncaughtException", 1);
+});
+
+process.once("unhandledRejection", (reason: unknown) => {
+  logFatal("unhandled_rejection", reason);
+  void shutdownAndExit("unhandledRejection", 1);
+});
+
+new acp.AgentSideConnection((connection) => {
+  activeAgent = new FledglingAgent(connection);
+  return activeAgent;
+}, stream);
