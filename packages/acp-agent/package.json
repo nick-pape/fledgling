@@ -1,0 +1,27 @@
+{
+  "name": "@fledgling/acp-agent",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A minimal ACP stdio agent backed by Vercel AI SDK.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "fledgling-acp-agent": "lib/index.js"
+  },
+  "scripts": {
+    "build": "heft build --clean",
+    "smoke": "node tools/smoke-client.mjs"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^0.4.3",
+    "@ai-sdk/openai": "^2.0.0",
+    "ai": "^5.0.0",
+    "dotenv": "^17.0.0"
+  },
+  "devDependencies": {
+    "@fledgling/heft-rig": "workspace:*",
+    "@rushstack/heft": "~0.75.0",
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.0"
+  }
+}

@@ -1,0 +1,12 @@
+common/temp/
+common/rush-logs/
+common/rush-logs-*/
+**/rush-logs/
+**/rush-logs-*/
+node_modules/
+lib/
+dist/
+temp/
+.heft/
+*.tsbuildinfo
+.env

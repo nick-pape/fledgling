@@ -1,0 +1,15 @@
+{
+  "name": "@fledgling/heft-rig",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared Heft configuration for Fledgling packages.",
+  "license": "MIT",
+  "scripts": {
+    "build": "node -e \"console.log('heft rig has no build output')\""
+  },
+  "dependencies": {
+    "@rushstack/heft": "~0.75.0",
+    "@rushstack/heft-typescript-plugin": "~0.9.0",
+    "typescript": "~5.9.0"
+  }
+}
