@@ -1,0 +1,37 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/rush/v5/command-line.schema.json",
+  "commands": [
+    {
+      "commandKind": "phased",
+      "name": "build",
+      "summary": "Build all projects",
+      "phases": ["_phase:build"],
+      "enableParallelism": true,
+      "incremental": true
+    },
+    {
+      "commandKind": "phased",
+      "name": "test",
+      "summary": "Build and run unit tests",
+      "phases": ["_phase:build", "_phase:test"],
+      "enableParallelism": true,
+      "incremental": true
+    }
+  ],
+  "phases": [
+    {
+      "name": "_phase:build",
+      "dependencies": {
+        "upstream": ["_phase:build"]
+      },
+      "missingScriptBehavior": "log"
+    },
+    {
+      "name": "_phase:test",
+      "dependencies": {
+        "self": ["_phase:build"]
+      },
+      "missingScriptBehavior": "silent"
+    }
+  ]
+}

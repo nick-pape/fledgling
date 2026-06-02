@@ -1,5 +1,6 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/rush/v5/pnpm-config.schema.json",
+  "pnpmStore": "local",
   "strictPeerDependencies": false,
   "useWorkspaces": true
 }
