@@ -23,6 +23,10 @@
       "projectFolder": "packages/context-builder"
     },
     {
+      "packageName": "@fledgling/session-log",
+      "projectFolder": "packages/session-log"
+    },
+    {
       "packageName": "@fledgling/acp-host-log",
       "projectFolder": "packages/acp-host-log"
     },

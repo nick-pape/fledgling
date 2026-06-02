@@ -54,4 +54,21 @@ describe("SessionStore", () => {
     expect(await explicitStore.load(sessionId)).toEqual([user]);
     expect((await readFile(explicitFile, "utf8")).trim()).toBe(JSON.stringify(user));
   });
+
+  it("rejects logs that contain events from another session", async () => {
+    const explicitFile = join(root, "mixed.jsonl");
+    const store = new SessionStore(root, explicitFile);
+    const sessionId = "expected-session";
+    const otherSessionEvent = {
+      ...store.createEventBase("other-session"),
+      type: "message.user" as const,
+      text: "wrong session"
+    };
+
+    await store.append(otherSessionEvent);
+
+    await expect(() => store.load(sessionId)).rejects.toThrow(
+      /Stored ACP session contains events for another session: expected-session/
+    );
+  });
 });

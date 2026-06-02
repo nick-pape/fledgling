@@ -24,6 +24,7 @@
     "@fledgling/common": "workspace:*",
     "@fledgling/context-builder": "workspace:*",
     "@fledgling/mcp-workspace": "workspace:*",
+    "@fledgling/session-log": "workspace:*",
     "ai": "^5.0.0"
   },
   "devDependencies": {

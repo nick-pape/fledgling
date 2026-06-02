@@ -30,6 +30,9 @@ importers:
       '@fledgling/mcp-workspace':
         specifier: workspace:*
         version: link:../mcp-workspace
+      '@fledgling/session-log':
+        specifier: workspace:*
+        version: link:../session-log
       ai:
         specifier: ^5.0.0
         version: 5.0.193(zod@3.25.76)
@@ -151,6 +154,31 @@ importers:
       typescript:
         specifier: ~5.9.0
         version: 5.9.3
+
+  ../../packages/session-log:
+    dependencies:
+      '@fledgling/common':
+        specifier: workspace:*
+        version: link:../common
+    devDependencies:
+      '@fledgling/heft-rig':
+        specifier: workspace:*
+        version: link:../../rigs/heft-rig
+      '@rushstack/heft':
+        specifier: 1.2.7
+        version: 1.2.7(@types/node@22.19.19)
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
+      '@vitest/coverage-v8':
+        specifier: ^3.1.1
+        version: 3.2.6(vitest@3.2.6(@types/node@22.19.19))
+      typescript:
+        specifier: ~5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.1
+        version: 3.2.6(@types/node@22.19.19)
 
   ../../rigs/heft-rig:
     dependencies:

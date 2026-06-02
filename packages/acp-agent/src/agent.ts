@@ -2,6 +2,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import type { experimental_MCPClient as MCPClient } from "@ai-sdk/mcp";
 import { createOpenAI } from "@ai-sdk/openai";
 import { buildContext } from "@fledgling/context-builder";
+import { SessionStore } from "@fledgling/session-log";
 import { stepCountIs, streamText, type CoreMessage, type ToolSet } from "ai";
 
 import { createSessionTools } from "./mcp-session-tools.js";
@@ -13,7 +14,6 @@ import {
   toRawObject
 } from "./prompt-content.js";
 import { SessionCleanup } from "./session-cleanup.js";
-import { SessionStore } from "./session-store.js";
 
 interface SessionState {
   readonly id: string;
