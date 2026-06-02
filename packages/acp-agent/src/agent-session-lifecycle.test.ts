@@ -16,9 +16,10 @@ describe("FledglingAgent session lifecycle", () => {
     vi.doUnmock("@ai-sdk/mcp/mcp-stdio");
     vi.resetModules();
 
-    if (tempDir) {
-      await rm(tempDir, { recursive: true, force: true });
-      tempDir = undefined;
+    const cleanupDir = tempDir;
+    tempDir = undefined;
+    if (cleanupDir) {
+      await rm(cleanupDir, { recursive: true, force: true });
     }
   });
 
