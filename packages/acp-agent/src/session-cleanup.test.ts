@@ -71,4 +71,39 @@ describe("SessionCleanup", () => {
     expect(serializeError("plain")).toBe("plain");
     expect(serializeError(undefined)).toBe("undefined");
   });
+
+  it("closes a single session without clearing the session collection", async () => {
+    const aborted: string[] = [];
+    const closeCalls: string[] = [];
+    let sessions: SessionCleanupState[] = [
+      {
+        id: "session-a",
+        pendingPrompt: {
+          abort() {
+            aborted.push("session-a");
+          }
+        },
+        mcpClients: [
+          {
+            async close() {
+              closeCalls.push("a-1");
+            }
+          }
+        ]
+      }
+    ];
+
+    const cleanup = new SessionCleanup(
+      () => sessions,
+      () => {
+        sessions = [];
+      }
+    );
+
+    await cleanup.closeSession(sessions[0], "test-replace");
+
+    expect(aborted).toEqual(["session-a"]);
+    expect(closeCalls).toEqual(["a-1"]);
+    expect(sessions).toHaveLength(1);
+  });
 });

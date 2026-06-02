@@ -15,7 +15,7 @@ export interface SessionCleanupState {
 export interface McpCloseFailureRecord {
   readonly level: "warn";
   readonly event: "mcp_close_failed";
-  readonly sessionId: string;
+  readonly sessionId: string | undefined;
   readonly reason: string;
   readonly error: string;
 }
@@ -43,32 +43,44 @@ export class SessionCleanup {
     return this.#closeAllPromise;
   }
 
+  public async closeSession(session: SessionCleanupState, reason: string): Promise<void> {
+    session.pendingPrompt?.abort();
+    await closeMcpClients(session.mcpClients, reason, session.id, this.#logWarn);
+  }
+
   async #closeAll(reason: string): Promise<void> {
     const closeAttempts: Promise<void>[] = [];
 
     for (const session of this.#getSessions()) {
-      session.pendingPrompt?.abort();
-
-      closeAttempts.push(
-        ...session.mcpClients.map(async (client) => {
-          try {
-            await client.close();
-          } catch (error: unknown) {
-            this.#logWarn({
-              level: "warn",
-              event: "mcp_close_failed",
-              sessionId: session.id,
-              reason,
-              error: serializeError(error)
-            });
-          }
-        })
-      );
+      closeAttempts.push(this.closeSession(session, reason));
     }
 
     await Promise.allSettled(closeAttempts);
     this.#clearSessions();
   }
+}
+
+export async function closeMcpClients(
+  clients: readonly McpClientLike[],
+  reason: string,
+  sessionId: string | undefined = undefined,
+  logWarn: WarnLogger = defaultWarnLogger
+): Promise<void> {
+  await Promise.allSettled(
+    clients.map(async (client) => {
+      try {
+        await client.close();
+      } catch (error: unknown) {
+        logWarn({
+          level: "warn",
+          event: "mcp_close_failed",
+          sessionId,
+          reason,
+          error: serializeError(error)
+        });
+      }
+    })
+  );
 }
 
 export function serializeError(error: unknown): string {

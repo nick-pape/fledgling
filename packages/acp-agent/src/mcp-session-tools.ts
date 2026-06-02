@@ -14,6 +14,7 @@ import {
   type McpServerConfig,
   type ResolvedMcpServer
 } from "./config.js";
+import { closeMcpClients } from "./session-cleanup.js";
 
 const configPromise: Promise<FledglingConfig> = loadConfig();
 
@@ -30,23 +31,27 @@ export async function createSessionTools(
   const mcpClients: MCPClient[] = [];
   const tools: ToolSet = {};
 
-  for (const entry of entries) {
-    const client = await createMCPClient({
-      name: `fledgling-${entry.origin}-${entry.name}`,
-      transport: await createTransport(entry.config, sessionCwd)
-    });
+  try {
+    for (const entry of entries) {
+      const client = await createMCPClient({
+        name: `fledgling-${entry.origin}-${entry.name}`,
+        transport: await createTransport(entry.config, sessionCwd)
+      });
+      mcpClients.push(client);
 
-    const serverTools = await client.tools();
-    for (const [toolName, tool] of Object.entries(serverTools)) {
-      const exposedToolName = toExposedToolName(entry.name, toolName);
-      if (exposedToolName in tools) {
-        throw new Error(`MCP tool name collision after sanitization: ${exposedToolName}`);
+      const serverTools = await client.tools();
+      for (const [toolName, tool] of Object.entries(serverTools)) {
+        const exposedToolName = toExposedToolName(entry.name, toolName);
+        if (exposedToolName in tools) {
+          throw new Error(`MCP tool name collision after sanitization: ${exposedToolName}`);
+        }
+
+        tools[exposedToolName] = tool as unknown as ToolSet[string];
       }
-
-      tools[exposedToolName] = tool as unknown as ToolSet[string];
     }
-
-    mcpClients.push(client);
+  } catch (error: unknown) {
+    await closeMcpClients(mcpClients, "session-tools-setup-failed");
+    throw error;
   }
 
   return { mcpClients, tools };
