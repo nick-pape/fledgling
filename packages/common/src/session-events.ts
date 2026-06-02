@@ -1,7 +1,7 @@
-export type ContextMessage = {
+export interface ContextMessage {
   readonly role: "user" | "assistant" | "system";
   readonly content: string;
-};
+}
 
 export type SessionEvent =
   | SessionCreatedEvent
@@ -12,11 +12,11 @@ export type SessionEvent =
   | ToolResultEvent
   | CompactionEvent;
 
-export type SessionEventBase = {
+export interface SessionEventBase {
   readonly eventId: string;
   readonly sessionId: string;
   readonly timestamp: string;
-};
+}
 
 export type SessionCreatedEvent = SessionEventBase & {
   readonly type: "session.created";

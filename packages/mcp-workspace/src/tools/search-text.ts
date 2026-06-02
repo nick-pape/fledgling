@@ -18,6 +18,12 @@ import {
 import { walkSearchFiles } from "../shared/fs.js";
 import { resolveWorkspacePath, toWorkspaceRelativePath } from "../shared/workspace.js";
 
+interface SearchMatch extends JsonRecord {
+  readonly path: string;
+  readonly line: number;
+  readonly preview: string;
+}
+
 export function registerSearchTextTool(server: McpServer): void {
   server.registerTool(
     "workspace.search_text",
@@ -38,7 +44,7 @@ export function registerSearchTextTool(server: McpServer): void {
     },
     async ({ query, path: requestedPath, limit, includeHidden }) => {
       const absolutePath = resolveWorkspacePath(requestedPath);
-      const matches: JsonRecord[] = [];
+      const matches: SearchMatch[] = [];
 
       for await (const filePath of walkSearchFiles(absolutePath, includeHidden)) {
         if (matches.length >= limit) {

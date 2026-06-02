@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
 
-export type CommandResult = {
-  readonly exitCode: number | null;
+export interface CommandResult {
+  readonly exitCode: number | undefined;
   readonly stdout: string;
   readonly stderr: string;
   readonly truncated: boolean;
   readonly timedOut: boolean;
-};
+}
 
 export function runCommand(
   command: string,
@@ -32,7 +32,7 @@ export function runCommand(
       child.kill();
     }, timeoutMs);
 
-    child.stdout?.on("data", (chunk: Buffer) => {
+    child.stdout.on("data", (chunk: Buffer) => {
       const next = stdout + chunk.toString("utf8");
       if (Buffer.byteLength(next, "utf8") > maxOutputBytes) {
         truncated = true;
@@ -42,7 +42,7 @@ export function runCommand(
       }
     });
 
-    child.stderr?.on("data", (chunk: Buffer) => {
+    child.stderr.on("data", (chunk: Buffer) => {
       const next = stderr + chunk.toString("utf8");
       if (Buffer.byteLength(next, "utf8") > maxOutputBytes) {
         truncated = true;
@@ -57,10 +57,10 @@ export function runCommand(
       reject(error);
     });
 
-    child.on("close", (exitCode) => {
+    child.on("close", (exitCode: number | null) => {
       clearTimeout(timer);
       resolve({
-        exitCode,
+        exitCode: exitCode ?? undefined,
         stdout,
         stderr,
         truncated,

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -13,26 +13,30 @@ import pretty from "pino-pretty";
 
 loadHostEnv();
 
-const deterministic = hasFlag("--deterministic") || process.env.FLEDGLING_HOST_DETERMINISTIC === "1";
-const jsonOutput = deterministic || hasFlag("--json") || process.env.FLEDGLING_HOST_JSON === "1";
-const includeWorkspaceMcp = hasFlag("--workspace-mcp") || process.env.FLEDGLING_HOST_WORKSPACE_MCP === "1";
-const resumeSessionFile = getFlagValue("--session-file") ?? process.env.FLEDGLING_HOST_SESSION_FILE;
-const resumeSessionId =
+const deterministic: boolean = hasFlag("--deterministic") || process.env.FLEDGLING_HOST_DETERMINISTIC === "1";
+const jsonOutput: boolean = deterministic || hasFlag("--json") || process.env.FLEDGLING_HOST_JSON === "1";
+const includeWorkspaceMcp: boolean =
+  hasFlag("--workspace-mcp") || process.env.FLEDGLING_HOST_WORKSPACE_MCP === "1";
+const resumeSessionFile: string | undefined = getFlagValue("--session-file") ?? process.env.FLEDGLING_HOST_SESSION_FILE;
+const resumeSessionId: string | undefined =
   getFlagValue("--session-id") ?? process.env.FLEDGLING_HOST_SESSION_ID ?? (await readSessionId(resumeSessionFile));
-const promptArgs = stripHostFlags(process.argv.slice(2));
-const prompt = promptArgs.join(" ") || "Reply with exactly: fledgling host log ok";
-const sessionCwd = path.resolve(process.env.FLEDGLING_HOST_CWD ?? process.cwd());
-const mcpServers = await readMcpServers();
-const logger = createLogger();
+const promptArgs: string[] = stripHostFlags(process.argv.slice(2));
+const prompt: string = promptArgs.join(" ") || "Reply with exactly: fledgling host log ok";
+const sessionCwd: string = path.resolve(process.env.FLEDGLING_HOST_CWD ?? process.cwd());
+const mcpServers: acp.McpServer[] = await readMcpServers();
+const logger: pino.Logger = createLogger();
+
+interface PendingText {
+  readonly sessionId: string;
+  readonly text: string;
+}
+
 let pendingText:
-  | {
-      sessionId: string;
-      text: string;
-    }
+  | PendingText
   | undefined;
 
 class LoggingHost implements acp.Client {
-  public text = "";
+  public text: string = "";
 
   public async sessionUpdate(params: acp.SessionNotification): Promise<void> {
     const { update } = params;
@@ -60,7 +64,7 @@ class LoggingHost implements acp.Client {
   }
 }
 
-const childEnv = { ...process.env };
+const childEnv: NodeJS.ProcessEnv = { ...process.env };
 
 if (!childEnv.FLEDGLING_CONFIG && existsSync("fledgling.config.example.json")) {
   childEnv.FLEDGLING_CONFIG = "fledgling.config.example.json";
@@ -70,25 +74,30 @@ if (resumeSessionFile) {
   childEnv.FLEDGLING_SESSION_FILE = path.resolve(resumeSessionFile);
 }
 
-const child = spawn(process.env.FLEDGLING_AGENT_COMMAND ?? process.execPath, getAgentArgs(), {
+// eslint-disable-next-line @rushstack/no-new-null -- Node's inherited stderr overload is represented as null.
+const child: ChildProcessByStdio<Writable, Readable, null> = spawn(
+  process.env.FLEDGLING_AGENT_COMMAND ?? process.execPath,
+  getAgentArgs(),
+  {
   cwd: process.env.FLEDGLING_AGENT_CWD ?? process.cwd(),
   env: childEnv,
   stdio: ["pipe", "pipe", "inherit"]
-});
+  }
+);
 
-const host = new LoggingHost();
-const connection = new acp.ClientSideConnection(
+const host: LoggingHost = new LoggingHost();
+const connection: acp.ClientSideConnection = new acp.ClientSideConnection(
   () => host,
   acp.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout))
 );
 
 try {
-  const init = await connection.initialize({
+  const init: acp.InitializeResponse = await connection.initialize({
     protocolVersion: acp.PROTOCOL_VERSION,
     clientCapabilities: {}
   });
 
-  const session = resumeSessionId
+  const session: acp.NewSessionResponse = resumeSessionId
     ? {
         sessionId: resumeSessionId,
         ...(await connection.loadSession({
@@ -111,7 +120,7 @@ try {
     sessionId: session.sessionId
   });
 
-  const result = await connection.prompt({
+  const result: acp.PromptResponse = await connection.prompt({
     sessionId: session.sessionId,
     prompt: [{ type: "text", text: prompt }]
   });
@@ -140,7 +149,7 @@ function createLogger(): pino.Logger {
     base: undefined,
     timestamp: false,
     formatters: {
-      level: (label) => ({ level: label })
+      level: (label: string) => ({ level: label })
     }
   };
 
@@ -164,7 +173,7 @@ function emitTranscript(event: TranscriptEventName, payload: unknown): void {
   const textChunk = event === "session/update" ? getTextChunk(payload as acp.SessionNotification) : undefined;
   if ((deterministic || !jsonOutput) && textChunk) {
     pendingText =
-      pendingText && pendingText.sessionId === textChunk.sessionId
+      pendingText?.sessionId === textChunk.sessionId
         ? { sessionId: pendingText.sessionId, text: pendingText.text + textChunk.text }
         : textChunk;
     return;
@@ -193,8 +202,8 @@ function flushTranscript(): void {
 }
 
 function writeTranscript(event: TranscriptEventName, payload: unknown): void {
-  const payloadForOutput = deterministic ? normalizeForSnapshot(payload) : payload;
-  const record = { event, ...toEventPayload(payloadForOutput) };
+  const payloadForOutput: unknown = deterministic ? normalizeForSnapshot(payload) : payload;
+  const record: Record<string, unknown> = { event, ...toEventPayload(payloadForOutput) };
 
   if (jsonOutput) {
     logger.info(record);
@@ -406,15 +415,17 @@ function getAgentArgs(): string[] {
   return [fileURLToPath(import.meta.resolve("@fledgling/acp-agent"))];
 }
 
-function waitForChildExit(timeoutMs = 5_000): Promise<void> {
+function waitForChildExit(timeoutMs: number = 5_000): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) {
     return Promise.resolve();
   }
 
   return new Promise((resolve) => {
-    let settled = false;
+    let settled: boolean = false;
+    // eslint-disable-next-line prefer-const -- assigned after finish() is declared so the callback can clear it.
+    let timeout: NodeJS.Timeout;
 
-    const finish = (): void => {
+    function finish(): void {
       if (settled) {
         return;
       }
@@ -423,15 +434,15 @@ function waitForChildExit(timeoutMs = 5_000): Promise<void> {
       clearTimeout(timeout);
       child.off("exit", finish);
       resolve();
-    };
+    }
 
-    const timeout = setTimeout(finish, timeoutMs);
+    timeout = setTimeout(finish, timeoutMs);
     child.once("exit", finish);
   });
 }
 
 function loadHostEnv(): void {
-  const envPath = findEnvPath();
+  const envPath: string | undefined = findEnvPath();
   if (envPath) {
     loadDotenv({ path: envPath, quiet: true });
   }
@@ -442,8 +453,11 @@ function findEnvPath(): string | undefined {
     return path.resolve(process.env.FLEDGLING_ENV_FILE);
   }
 
-  const defaultAgentRoot = path.resolve(path.dirname(fileURLToPath(import.meta.resolve("@fledgling/acp-agent"))), "..");
-  const candidates = [
+  const defaultAgentRoot: string = path.resolve(
+    path.dirname(fileURLToPath(import.meta.resolve("@fledgling/acp-agent"))),
+    ".."
+  );
+  const candidates: (string | undefined)[] = [
     path.resolve(process.cwd(), ".env"),
     process.env.FLEDGLING_AGENT_CWD ? path.resolve(process.env.FLEDGLING_AGENT_CWD, ".env") : undefined,
     path.resolve(defaultAgentRoot, ".env")
@@ -464,7 +478,7 @@ async function readMcpServers(): Promise<acp.McpServer[]> {
     });
   }
 
-  const mcpServersJson = process.env.FLEDGLING_HOST_MCP_SERVERS;
+  const mcpServersJson: string | undefined = process.env.FLEDGLING_HOST_MCP_SERVERS;
   if (mcpServersJson) {
     servers.push(...(JSON.parse(mcpServersJson) as acp.McpServer[]));
   }
