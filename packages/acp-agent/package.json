@@ -13,12 +13,15 @@
   "scripts": {
     "build": "heft build --clean",
     "test:session-cleanup": "node tools/session-cleanup.test.mjs",
+    "test:session-store": "node tools/session-store.test.mjs",
     "smoke": "node tools/smoke-client.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.4.3",
     "@ai-sdk/mcp": "0.0.18",
     "@ai-sdk/openai": "^2.0.0",
+    "@fledgling/common": "workspace:*",
+    "@fledgling/context-builder": "workspace:*",
     "@fledgling/mcp-workspace": "workspace:*",
     "ai": "^5.0.0"
   },

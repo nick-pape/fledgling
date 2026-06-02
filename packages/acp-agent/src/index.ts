@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -12,9 +11,11 @@ import {
 } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import { createOpenAI } from "@ai-sdk/openai";
+import { buildContext } from "@fledgling/context-builder";
 import { stepCountIs, streamText, type CoreMessage, type ToolSet } from "ai";
 
 import { serializeError, SessionCleanup } from "./session-cleanup.js";
+import { SessionStore } from "./session-store.js";
 
 type SessionState = {
   readonly id: string;
@@ -22,6 +23,7 @@ type SessionState = {
   readonly history: CoreMessage[];
   readonly mcpClients: MCPClient[];
   readonly tools: ToolSet;
+  readonly toolCallNames: Map<string, string>;
   pendingPrompt: AbortController | undefined;
 };
 
@@ -62,6 +64,7 @@ const configPromise = loadConfig();
 class FledglingAgent implements acp.Agent {
   readonly #connection: acp.AgentSideConnection;
   readonly #sessions = new Map<string, SessionState>();
+  readonly #sessionStore = new SessionStore();
   readonly #sessionCleanup = new SessionCleanup(
     () => this.#sessions.values(),
     () => this.#sessions.clear()
@@ -75,7 +78,7 @@ class FledglingAgent implements acp.Agent {
     return {
       protocolVersion: acp.PROTOCOL_VERSION,
       agentCapabilities: {
-        loadSession: false,
+        loadSession: true,
         mcpCapabilities: {
           http: true,
           sse: true
@@ -87,19 +90,52 @@ class FledglingAgent implements acp.Agent {
   public async newSession(params: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
     const { mcpClients, tools } = await createSessionTools(params.cwd, params.mcpServers);
     const session: SessionState = {
-      id: randomUUID(),
+      id: this.#sessionStore.createId(),
       cwd: params.cwd,
       history: [],
       mcpClients,
       tools,
+      toolCallNames: new Map(),
       pendingPrompt: undefined
     };
 
     this.#sessions.set(session.id, session);
+    await this.#sessionStore.append({
+      ...this.#sessionStore.createEventBase(session.id),
+      type: "session.created",
+      cwd: params.cwd,
+      mcpServers: params.mcpServers.map((server) => server.name)
+    });
 
     return {
       sessionId: session.id
     };
+  }
+
+  public async loadSession(params: acp.LoadSessionRequest): Promise<acp.LoadSessionResponse> {
+    const events = await this.#sessionStore.load(params.sessionId);
+    const context = buildContext(events, { mode: "replay" });
+    const { mcpClients, tools } = await createSessionTools(params.cwd, params.mcpServers);
+    const session: SessionState = {
+      id: params.sessionId,
+      cwd: params.cwd,
+      history: context.messages.map((message) => ({ role: message.role, content: message.content }) as CoreMessage),
+      mcpClients,
+      tools,
+      toolCallNames: new Map(),
+      pendingPrompt: undefined
+    };
+
+    this.#sessions.set(session.id, session);
+    await this.#sessionStore.append({
+      ...this.#sessionStore.createEventBase(session.id),
+      type: "session.loaded",
+      cwd: params.cwd,
+      source: "session.load"
+    });
+    await replaySessionHistory(this.#connection, session);
+
+    return {};
   }
 
   public async authenticate(_params: acp.AuthenticateRequest): Promise<acp.AuthenticateResponse> {
@@ -118,6 +154,11 @@ class FledglingAgent implements acp.Agent {
 
     const userText = extractPromptText(params);
     session.history.push({ role: "user", content: userText });
+    await this.#sessionStore.append({
+      ...this.#sessionStore.createEventBase(session.id),
+      type: "message.user",
+      text: userText
+    });
     session.pendingPrompt?.abort();
     session.pendingPrompt = new AbortController();
 
@@ -164,6 +205,15 @@ class FledglingAgent implements acp.Agent {
           }
 
           case "tool-call": {
+            session.toolCallNames.set(part.toolCallId, part.toolName);
+            await this.#sessionStore.append({
+              ...this.#sessionStore.createEventBase(session.id),
+              type: "tool.call",
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              title: part.toolName,
+              rawInput: part.input
+            });
             await this.#connection.sessionUpdate({
               sessionId: params.sessionId,
               update: {
@@ -179,6 +229,16 @@ class FledglingAgent implements acp.Agent {
           }
 
           case "tool-result": {
+            await this.#sessionStore.append({
+              ...this.#sessionStore.createEventBase(session.id),
+              type: "tool.result",
+              toolCallId: part.toolCallId,
+              toolName: session.toolCallNames.get(part.toolCallId),
+              status: "completed",
+              text: stringifyToolOutput(part.output),
+              rawOutput: part.output,
+              contextHint: extractContextHint(part.output)
+            });
             await this.#connection.sessionUpdate({
               sessionId: params.sessionId,
               update: {
@@ -201,6 +261,16 @@ class FledglingAgent implements acp.Agent {
           }
 
           case "tool-error": {
+            await this.#sessionStore.append({
+              ...this.#sessionStore.createEventBase(session.id),
+              type: "tool.result",
+              toolCallId: part.toolCallId,
+              toolName: session.toolCallNames.get(part.toolCallId),
+              status: "failed",
+              text: stringifyToolOutput(part.error),
+              rawOutput: toRawObject(part.error),
+              contextHint: undefined
+            });
             await this.#connection.sessionUpdate({
               sessionId: params.sessionId,
               update: {
@@ -233,6 +303,11 @@ class FledglingAgent implements acp.Agent {
 
     session.history.push({ role: "assistant", content: assistantText });
     session.pendingPrompt = undefined;
+    await this.#sessionStore.append({
+      ...this.#sessionStore.createEventBase(session.id),
+      type: "message.assistant",
+      text: assistantText
+    });
 
     return {
       stopReason: "end_turn"
@@ -246,6 +321,54 @@ class FledglingAgent implements acp.Agent {
   public closeAllSessions(reason: string): Promise<void> {
     return this.#sessionCleanup.closeAll(reason);
   }
+}
+
+async function replaySessionHistory(connection: acp.AgentSideConnection, session: SessionState): Promise<void> {
+  for (const message of session.history) {
+    if (message.role !== "user" && message.role !== "assistant") {
+      continue;
+    }
+
+    const text = messageContentToText(message.content);
+    if (!text) {
+      continue;
+    }
+
+    await connection.sessionUpdate({
+      sessionId: session.id,
+      update: {
+        sessionUpdate: message.role === "user" ? "user_message_chunk" : "agent_message_chunk",
+        content: {
+          type: "text",
+          text
+        }
+      }
+    });
+  }
+}
+
+function messageContentToText(content: CoreMessage["content"]): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+
+        if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+          return part.text;
+        }
+
+        return JSON.stringify(part);
+      })
+      .join("\n");
+  }
+
+  return JSON.stringify(content);
 }
 
 function extractPromptText(params: acp.PromptRequest): string {
@@ -454,6 +577,30 @@ function stringifyToolOutput(output: unknown): string {
   }
 
   return JSON.stringify(output, null, 2);
+}
+
+function extractContextHint(output: unknown): unknown {
+  if (!output || typeof output !== "object") {
+    return undefined;
+  }
+
+  if ("structuredContent" in output) {
+    const structuredContent = (output as { readonly structuredContent?: unknown }).structuredContent;
+    if (structuredContent && typeof structuredContent === "object" && "contextHint" in structuredContent) {
+      return (structuredContent as { readonly contextHint?: unknown }).contextHint;
+    }
+  }
+
+  if ("_meta" in output) {
+    const meta = (output as { readonly _meta?: unknown })._meta;
+    if (meta && typeof meta === "object" && "house.pape.fledgling/context-hint" in meta) {
+      return (meta as { readonly ["house.pape.fledgling/context-hint"]?: unknown })[
+        "house.pape.fledgling/context-hint"
+      ];
+    }
+  }
+
+  return undefined;
 }
 
 function toRawObject(value: unknown): Record<string, unknown> {

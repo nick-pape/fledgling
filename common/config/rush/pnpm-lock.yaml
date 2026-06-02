@@ -21,6 +21,12 @@ importers:
       '@ai-sdk/openai':
         specifier: ^2.0.0
         version: 2.0.106(zod@3.25.76)
+      '@fledgling/common':
+        specifier: workspace:*
+        version: link:../common
+      '@fledgling/context-builder':
+        specifier: workspace:*
+        version: link:../context-builder
       '@fledgling/mcp-workspace':
         specifier: workspace:*
         version: link:../mcp-workspace
@@ -61,6 +67,40 @@ importers:
       pino-pretty:
         specifier: ~13.1.3
         version: 13.1.3
+    devDependencies:
+      '@fledgling/heft-rig':
+        specifier: workspace:*
+        version: link:../../rigs/heft-rig
+      '@rushstack/heft':
+        specifier: ~0.75.0
+        version: 0.75.0(@types/node@22.19.19)
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
+      typescript:
+        specifier: ~5.9.0
+        version: 5.9.3
+
+  ../../packages/common:
+    devDependencies:
+      '@fledgling/heft-rig':
+        specifier: workspace:*
+        version: link:../../rigs/heft-rig
+      '@rushstack/heft':
+        specifier: ~0.75.0
+        version: 0.75.0(@types/node@22.19.19)
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
+      typescript:
+        specifier: ~5.9.0
+        version: 5.9.3
+
+  ../../packages/context-builder:
+    dependencies:
+      '@fledgling/common':
+        specifier: workspace:*
+        version: link:../common
     devDependencies:
       '@fledgling/heft-rig':
         specifier: workspace:*

@@ -15,6 +15,14 @@
       "projectFolder": "packages/acp-agent"
     },
     {
+      "packageName": "@fledgling/common",
+      "projectFolder": "packages/common"
+    },
+    {
+      "packageName": "@fledgling/context-builder",
+      "projectFolder": "packages/context-builder"
+    },
+    {
       "packageName": "@fledgling/acp-host-log",
       "projectFolder": "packages/acp-host-log"
     },

@@ -1,0 +1,23 @@
+{
+  "name": "@fledgling/context-builder",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Build and prune Fledgling session logs into model-ready context.",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "heft build --clean",
+    "test": "node tools/context-builder.test.mjs"
+  },
+  "dependencies": {
+    "@fledgling/common": "workspace:*"
+  },
+  "devDependencies": {
+    "@fledgling/heft-rig": "workspace:*",
+    "@rushstack/heft": "~0.75.0",
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.0"
+  }
+}

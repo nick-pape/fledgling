@@ -16,9 +16,10 @@ loadHostEnv();
 const deterministic = hasFlag("--deterministic") || process.env.FLEDGLING_HOST_DETERMINISTIC === "1";
 const jsonOutput = deterministic || hasFlag("--json") || process.env.FLEDGLING_HOST_JSON === "1";
 const includeWorkspaceMcp = hasFlag("--workspace-mcp") || process.env.FLEDGLING_HOST_WORKSPACE_MCP === "1";
-const promptArgs = process.argv
-  .slice(2)
-  .filter((arg) => arg !== "--deterministic" && arg !== "--json" && arg !== "--workspace-mcp");
+const resumeSessionFile = getFlagValue("--session-file") ?? process.env.FLEDGLING_HOST_SESSION_FILE;
+const resumeSessionId =
+  getFlagValue("--session-id") ?? process.env.FLEDGLING_HOST_SESSION_ID ?? (await readSessionId(resumeSessionFile));
+const promptArgs = stripHostFlags(process.argv.slice(2));
 const prompt = promptArgs.join(" ") || "Reply with exactly: fledgling host log ok";
 const sessionCwd = path.resolve(process.env.FLEDGLING_HOST_CWD ?? process.cwd());
 const mcpServers = await readMcpServers();
@@ -65,6 +66,10 @@ if (!childEnv.FLEDGLING_CONFIG && existsSync("fledgling.config.example.json")) {
   childEnv.FLEDGLING_CONFIG = "fledgling.config.example.json";
 }
 
+if (resumeSessionFile) {
+  childEnv.FLEDGLING_SESSION_FILE = path.resolve(resumeSessionFile);
+}
+
 const child = spawn(process.env.FLEDGLING_AGENT_COMMAND ?? process.execPath, getAgentArgs(), {
   cwd: process.env.FLEDGLING_AGENT_CWD ?? process.cwd(),
   env: childEnv,
@@ -83,16 +88,26 @@ try {
     clientCapabilities: {}
   });
 
-  const session = await connection.newSession({
-    cwd: sessionCwd,
-    mcpServers
-  });
+  const session = resumeSessionId
+    ? {
+        sessionId: resumeSessionId,
+        ...(await connection.loadSession({
+          sessionId: resumeSessionId,
+          cwd: sessionCwd,
+          mcpServers
+        }))
+      }
+    : await connection.newSession({
+        cwd: sessionCwd,
+        mcpServers
+      });
 
   emitTranscript("session/ready", {
     protocolVersion: init.protocolVersion,
     agentCapabilities: init.agentCapabilities,
     cwd: sessionCwd,
     mcpServers: mcpServers.map((server) => server.name),
+    loaded: resumeSessionId !== undefined,
     sessionId: session.sessionId
   });
 
@@ -318,6 +333,69 @@ function normalizeString(value: string): string {
 
 function hasFlag(flag: string): boolean {
   return process.argv.includes(flag);
+}
+
+function getFlagValue(flag: string): string | undefined {
+  const equalsPrefix = `${flag}=`;
+  const equalsArg = process.argv.find((arg) => arg.startsWith(equalsPrefix));
+  if (equalsArg) {
+    return equalsArg.slice(equalsPrefix.length);
+  }
+
+  const index = process.argv.indexOf(flag);
+  if (index === -1) {
+    return undefined;
+  }
+
+  return process.argv[index + 1];
+}
+
+function stripHostFlags(args: string[]): string[] {
+  const stripped: string[] = [];
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--deterministic" || arg === "--json" || arg === "--workspace-mcp") {
+      continue;
+    }
+
+    if (arg === "--session-id") {
+      index++;
+      continue;
+    }
+
+    if (arg.startsWith("--session-id=")) {
+      continue;
+    }
+
+    if (arg === "--session-file") {
+      index++;
+      continue;
+    }
+
+    if (arg.startsWith("--session-file=")) {
+      continue;
+    }
+
+    stripped.push(arg);
+  }
+
+  return stripped;
+}
+
+async function readSessionId(sessionFile: string | undefined): Promise<string | undefined> {
+  if (!sessionFile) {
+    return undefined;
+  }
+
+  const raw = await readFile(path.resolve(sessionFile), "utf8");
+  const firstLine = raw.split(/\r?\n/).find((line) => line.trim().length > 0);
+  if (!firstLine) {
+    return undefined;
+  }
+
+  const firstEvent = JSON.parse(firstLine) as { readonly sessionId?: unknown };
+  return typeof firstEvent.sessionId === "string" ? firstEvent.sessionId : undefined;
 }
 
 function getAgentArgs(): string[] {
