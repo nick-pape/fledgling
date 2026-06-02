@@ -8,7 +8,10 @@ export class SessionStore {
   readonly #root: string;
   readonly #sessionFile: string | undefined;
 
-  public constructor(root: string = defaultSessionStoreRoot(), sessionFile: string | undefined = process.env.FLEDGLING_SESSION_FILE) {
+  public constructor(
+    root: string = defaultSessionStoreRoot(),
+    sessionFile: string | undefined = process.env.FLEDGLING_SESSION_FILE
+  ) {
     this.#root = root;
     this.#sessionFile = sessionFile ? path.resolve(sessionFile) : undefined;
   }
