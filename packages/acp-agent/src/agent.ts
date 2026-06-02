@@ -23,6 +23,7 @@ interface SessionState {
   readonly tools: ToolSet;
   readonly toolCallNames: Map<string, string>;
   pendingPrompt: AbortController | undefined;
+  promptQueue: Promise<void>;
 }
 
 const DEFAULT_SYSTEM_PROMPT: string =
@@ -63,7 +64,8 @@ export class FledglingAgent implements acp.Agent {
       mcpClients,
       tools,
       toolCallNames: new Map(),
-      pendingPrompt: undefined
+      pendingPrompt: undefined,
+      promptQueue: Promise.resolve()
     };
 
     this.#sessions.set(session.id, session);
@@ -91,7 +93,8 @@ export class FledglingAgent implements acp.Agent {
       mcpClients,
       tools,
       toolCallNames: new Map(),
-      pendingPrompt: undefined
+      pendingPrompt: undefined,
+      promptQueue: Promise.resolve()
     };
 
     if (existingSession) {
@@ -124,15 +127,33 @@ export class FledglingAgent implements acp.Agent {
       throw new Error(`Unknown ACP session: ${params.sessionId}`);
     }
 
+    const response = session.promptQueue
+      .catch(() => undefined)
+      .then(() => {
+        if (this.#sessions.get(session.id) !== session) {
+          return { stopReason: "cancelled" } satisfies acp.PromptResponse;
+        }
+
+        return this.#runPrompt(session, params);
+      });
+    session.promptQueue = response.then(
+      () => undefined,
+      () => undefined
+    );
+
+    return response;
+  }
+
+  async #runPrompt(session: SessionState, params: acp.PromptRequest): Promise<acp.PromptResponse> {
     const userText = extractPromptText(params);
+    const promptController = new AbortController();
+    session.pendingPrompt = promptController;
     session.history.push({ role: "user", content: userText });
     await this.#sessionStore.append({
       ...this.#sessionStore.createEventBase(session.id),
       type: "message.user",
       text: userText
     });
-    session.pendingPrompt?.abort();
-    session.pendingPrompt = new AbortController();
 
     const openai = createOpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -149,7 +170,7 @@ export class FledglingAgent implements acp.Agent {
       tools: session.tools,
       toolChoice: getToolChoice(session.tools),
       stopWhen: stepCountIs(5),
-      abortSignal: session.pendingPrompt.signal
+      abortSignal: promptController.signal
     });
 
     let assistantText = "";
@@ -266,15 +287,18 @@ export class FledglingAgent implements acp.Agent {
         }
       }
     } catch (error: unknown) {
-      if (session.pendingPrompt.signal.aborted) {
+      if (promptController.signal.aborted) {
         return { stopReason: "cancelled" };
       }
 
       throw error;
+    } finally {
+      if (session.pendingPrompt === promptController) {
+        session.pendingPrompt = undefined;
+      }
     }
 
     session.history.push({ role: "assistant", content: assistantText });
-    session.pendingPrompt = undefined;
     await this.#sessionStore.append({
       ...this.#sessionStore.createEventBase(session.id),
       type: "message.assistant",
