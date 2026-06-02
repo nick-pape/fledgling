@@ -4,34 +4,115 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-interface StreamPart {
-  readonly type: "text-delta";
-  readonly text: string;
-}
+import type { SessionEvent } from "@fledgling/common";
+import { SessionStore } from "@fledgling/session-log";
+
+import type { FledglingAgent, FledglingAgentDependencies } from "./agent.js";
+
+type StreamPart =
+  | {
+      readonly type: "text-delta";
+      readonly text: string;
+    }
+  | {
+      readonly type: "tool-call";
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly input: unknown;
+    }
+  | {
+      readonly type: "tool-result";
+      readonly toolCallId: string;
+      readonly output: unknown;
+    }
+  | {
+      readonly type: "tool-error";
+      readonly toolCallId: string;
+      readonly error: unknown;
+    };
 
 interface ControlledStream {
   readonly result: { readonly fullStream: AsyncIterable<StreamPart> };
   readonly release: () => void;
 }
 
+let tempDir: string | undefined;
+
 describe("FledglingAgent prompt cancellation", () => {
   const originalConfig = process.env.FLEDGLING_CONFIG;
   const originalSessionFile = process.env.FLEDGLING_SESSION_FILE;
-  let tempDir: string | undefined;
 
   afterEach(async () => {
     restoreEnv("FLEDGLING_CONFIG", originalConfig);
     restoreEnv("FLEDGLING_SESSION_FILE", originalSessionFile);
-    vi.doUnmock("ai");
-    vi.doUnmock("@ai-sdk/openai");
-    vi.doUnmock("./mcp-session-tools.js");
-    vi.resetModules();
 
     const cleanupDir = tempDir;
     tempDir = undefined;
     if (cleanupDir) {
       await rm(cleanupDir, { recursive: true, force: true });
     }
+  });
+
+  it("streams text responses and persists user and assistant messages", async () => {
+    const { agent, sessionId, streamText, sessionFile, sessionUpdates } = await createTestAgent();
+    streamText.mockReturnValueOnce(createImmediateStream([{ type: "text-delta", text: "hello" }]));
+
+    await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] })).resolves.toEqual({
+      stopReason: "end_turn"
+    });
+
+    expect(sessionUpdates).toEqual([
+      {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "hello" }
+        }
+      }
+    ]);
+    expect(await loadStoredEvents(sessionFile)).toEqual([
+      expect.objectContaining({ type: "session.created" }),
+      expect.objectContaining({ type: "message.user", text: "hi" }),
+      expect.objectContaining({ type: "message.assistant", text: "hello" })
+    ]);
+  });
+
+  it("emits and persists tool calls, tool results, and tool errors", async () => {
+    const { agent, sessionId, streamText, sessionFile, sessionUpdates } = await createTestAgent();
+    streamText.mockReturnValueOnce(
+      createImmediateStream([
+        { type: "tool-call", toolCallId: "call-1", toolName: "workspace_read", input: { path: "README.md" } },
+        { type: "tool-result", toolCallId: "call-1", output: { content: "ok" } },
+        { type: "tool-call", toolCallId: "call-2", toolName: "workspace_write", input: { path: "x" } },
+        { type: "tool-error", toolCallId: "call-2", error: new Error("write failed") }
+      ])
+    );
+
+    await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "use tools" }] })).resolves.toEqual({
+      stopReason: "end_turn"
+    });
+
+    expect(sessionUpdates.map((notification) => notification.update.sessionUpdate)).toEqual([
+      "tool_call",
+      "tool_call_update",
+      "tool_call",
+      "tool_call_update"
+    ]);
+    expect(await loadStoredEventTypes(sessionFile)).toEqual([
+      "session.created",
+      "message.user",
+      "tool.call",
+      "tool.result",
+      "tool.call",
+      "tool.result",
+      "message.assistant"
+    ]);
+    expect((await loadStoredEvents(sessionFile))[3]).toEqual(
+      expect.objectContaining({ type: "tool.result", toolName: "workspace_read", status: "completed" })
+    );
+    expect((await loadStoredEvents(sessionFile))[5]).toEqual(
+      expect.objectContaining({ type: "tool.result", toolName: "workspace_write", status: "failed" })
+    );
   });
 
   it("queues overlapping prompts for the same session", async () => {
@@ -102,42 +183,113 @@ describe("FledglingAgent prompt cancellation", () => {
     expect(messages).toEqual([["message.user", "one"]]);
   });
 
+  it("replays stored user and assistant messages when loading a session", async () => {
+    const { agent, sessionId, sessionStore, sessionUpdates, tempDir } = await createTestAgent();
+    await sessionStore.append({
+      ...sessionStore.createEventBase(sessionId),
+      type: "message.user",
+      text: "previous user"
+    });
+    await sessionStore.append({
+      ...sessionStore.createEventBase(sessionId),
+      type: "message.assistant",
+      text: "previous assistant"
+    });
+
+    await agent.loadSession({ sessionId, cwd: tempDir, mcpServers: [] });
+
+    expect(sessionUpdates).toEqual([
+      {
+        sessionId,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "previous user" }
+        }
+      },
+      {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "previous assistant" }
+        }
+      }
+    ]);
+  });
+
+  it("rejects session creation when injected tool setup fails", async () => {
+    const { FledglingAgent } = await import("./agent.js");
+    const sessionStore = await createTempSessionStore();
+    const agent = new FledglingAgent(createFakeConnection() as never, {
+      createSessionTools: vi.fn(async () => {
+        throw new Error("setup failed");
+      }),
+      sessionStore: sessionStore.store,
+      runModelTurn: vi.fn()
+    });
+
+    await expect(agent.newSession({ cwd: sessionStore.tempDir, mcpServers: [] })).rejects.toThrow("setup failed");
+  });
+
   async function createTestAgent(): Promise<{
-    readonly agent: import("./agent.js").FledglingAgent;
+    readonly agent: FledglingAgent;
     readonly sessionId: string;
     readonly sessionFile: string;
+    readonly sessionStore: SessionStore;
+    readonly sessionUpdates: FakeSessionUpdate[];
     readonly tempDir: string;
     readonly streamText: ReturnType<typeof vi.fn>;
   }> {
-    tempDir = await mkdtemp(path.join(os.tmpdir(), "fledgling-prompt-test-"));
-    process.env.FLEDGLING_CONFIG = path.join(tempDir, "missing-config.json");
-    const sessionFile = path.join(tempDir, "session.jsonl");
-    process.env.FLEDGLING_SESSION_FILE = sessionFile;
-
+    const { store: sessionStore, sessionFile, tempDir: createdTempDir } = await createTempSessionStore();
+    const sessionUpdates: FakeSessionUpdate[] = [];
     const streamText = vi.fn();
-    vi.doMock("ai", () => ({
-      stepCountIs: vi.fn(() => ({ type: "step-count" })),
-      streamText
-    }));
-    vi.doMock("@ai-sdk/openai", () => ({
-      createOpenAI: vi.fn(() => ({
-        chat: vi.fn(() => ({ provider: "chat" })),
-        responses: vi.fn(() => ({ provider: "responses" }))
-      }))
-    }));
-    vi.doMock("./mcp-session-tools.js", () => ({
-      createSessionTools: vi.fn(async () => ({ mcpClients: [], tools: {} }))
-    }));
-
     const { FledglingAgent } = await import("./agent.js");
-    const agent = new FledglingAgent({
-      sessionUpdate: vi.fn(async () => {})
-    } as never);
-    const session = await agent.newSession({ cwd: tempDir, mcpServers: [] });
+    const agent = new FledglingAgent(createFakeConnection(sessionUpdates) as never, {
+      createSessionTools: vi.fn(async () => ({ mcpClients: [], tools: {} })),
+      sessionStore,
+      runModelTurn: streamText
+    } satisfies FledglingAgentDependencies);
+    const session = await agent.newSession({ cwd: createdTempDir, mcpServers: [] });
 
-    return { agent, sessionId: session.sessionId, sessionFile, tempDir, streamText };
+    return {
+      agent,
+      sessionId: session.sessionId,
+      sessionFile,
+      sessionStore,
+      sessionUpdates,
+      tempDir: createdTempDir,
+      streamText
+    };
   }
 });
+
+interface FakeSessionUpdate {
+  readonly sessionId: string;
+  readonly update: {
+    readonly sessionUpdate: string;
+    readonly [key: string]: unknown;
+  };
+}
+
+function createFakeConnection(sessionUpdates: FakeSessionUpdate[] = []): { sessionUpdate(params: FakeSessionUpdate): Promise<void> } {
+  return {
+    async sessionUpdate(params: FakeSessionUpdate): Promise<void> {
+      sessionUpdates.push(params);
+    }
+  };
+}
+
+async function createTempSessionStore(): Promise<{
+  readonly store: SessionStore;
+  readonly sessionFile: string;
+  readonly tempDir: string;
+}> {
+  const createdTempDir = await mkdtemp(path.join(os.tmpdir(), "fledgling-prompt-test-"));
+  tempDir = createdTempDir;
+  process.env.FLEDGLING_CONFIG = path.join(createdTempDir, "missing-config.json");
+  const sessionFile = path.join(createdTempDir, "session.jsonl");
+  process.env.FLEDGLING_SESSION_FILE = sessionFile;
+  return { store: new SessionStore(createdTempDir, sessionFile), sessionFile, tempDir: createdTempDir };
+}
 
 function createControlledStream(parts: readonly StreamPart[]): ControlledStream {
   let release: () => void = () => undefined;
@@ -186,13 +338,21 @@ function createImmediateStream(parts: readonly StreamPart[]): { readonly fullStr
 }
 
 async function loadStoredMessages(sessionFile: string): Promise<[string, string][]> {
+  return (await loadStoredEvents(sessionFile))
+    .filter((event) => event.type === "message.user" || event.type === "message.assistant")
+    .map((event) => [event.type, event.text]);
+}
+
+async function loadStoredEventTypes(sessionFile: string): Promise<string[]> {
+  return (await loadStoredEvents(sessionFile)).map((event) => event.type);
+}
+
+async function loadStoredEvents(sessionFile: string): Promise<SessionEvent[]> {
   const raw = await readFile(sessionFile, "utf8");
   return raw
     .split(/\r?\n/)
     .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as { readonly type: string; readonly text?: string })
-    .filter((event) => event.type === "message.user" || event.type === "message.assistant")
-    .map((event) => [event.type, event.text ?? ""]);
+    .map((line) => JSON.parse(line) as SessionEvent);
 }
 
 async function waitFor(assertion: () => void): Promise<void> {
