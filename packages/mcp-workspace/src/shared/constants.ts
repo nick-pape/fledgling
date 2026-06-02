@@ -1,6 +1,3 @@
-export const CONTEXT_HINT_META_KEY: string = "house.pape.fledgling/context-hint";
-export const TOOL_META_KEY: string = "house.pape.fledgling/tool";
-
 export const DEFAULT_MAX_READ_BYTES: number = 256 * 1024;
 export const DEFAULT_MAX_COMMAND_OUTPUT_BYTES: number = 64 * 1024;
 export const DEFAULT_COMMAND_TIMEOUT_MS: number = 30_000;

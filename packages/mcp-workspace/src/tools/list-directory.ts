@@ -7,7 +7,9 @@ import { z } from "zod";
 import {
   type ContextHint,
   estimateTokens,
-  hashText,
+  hashText
+} from "@fledgling/common";
+import {
   toolMeta,
   toolResult
 } from "../shared/context.js";
