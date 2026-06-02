@@ -12,6 +12,7 @@
   },
   "scripts": {
     "build": "heft build --clean",
+    "_phase:build": "heft run --only build -- --clean",
     "start": "node lib/index.js",
     "snapshot": "node lib/index.js --json --deterministic"
   },

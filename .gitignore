@@ -6,6 +6,7 @@ common/rush-logs-*/
 node_modules/
 lib/
 dist/
+coverage/
 temp/
 .heft/
 *.tsbuildinfo
