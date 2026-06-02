@@ -2,12 +2,14 @@
 
 A minimal ACP-native TypeScript agent harness.
 
-The v0 target is intentionally small:
+The v0 target is intentionally small but usable:
 
 - expose an Agent Client Protocol agent over stdio;
 - accept prompt turns from an ACP client;
 - stream model output through Vercel AI SDK using OpenAI-compatible endpoints;
-- ship with no built-in tools.
+- load MCP tools supplied by the ACP client or local config;
+- optionally run a first-party workspace MCP server for local file and command tools;
+- persist session events so sessions can be loaded again.
 
 ## Development
 
@@ -55,3 +57,27 @@ Launch config supports MCP servers:
   }
 }
 ```
+
+The `firstPartyWorkspace` server exposes MCP tools for:
+
+- reading files;
+- listing directories;
+- searching text;
+- writing files;
+- replacing a range in a file with hash checking;
+- running non-interactive workspace commands.
+
+Workspace tools return Fledgling context hints in their structured MCP output. The agent currently records those hints in the session log; richer context replay and compaction are still in progress.
+
+## Sessions
+
+Sessions are written as JSONL event logs under `.fledgling/sessions` by default. Set `FLEDGLING_SESSION_DIR` to change the directory or `FLEDGLING_SESSION_FILE` to force a single log file for development.
+
+The agent advertises ACP `loadSession` support. Loading a session rebuilds the user/assistant message history from stored events and replays that transcript to the ACP client.
+
+## Current Limitations
+
+- Prompt input is treated mostly as text; rich ACP prompt parts are not yet preserved semantically.
+- Workspace access is provided through MCP tools, not ACP host filesystem or terminal APIs.
+- ACP authentication, session modes, model selection, and permission prompts are still minimal or stubbed.
+- Tool result context hints are recorded but not yet used for full context-store replay.
