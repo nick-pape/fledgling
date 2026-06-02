@@ -23,6 +23,7 @@ interface SessionState {
   readonly tools: ToolSet;
   readonly toolCallNames: Map<string, string>;
   pendingPrompt: AbortController | undefined;
+  promptQueue: Promise<void>;
 }
 
 const DEFAULT_SYSTEM_PROMPT: string =
@@ -63,7 +64,8 @@ export class FledglingAgent implements acp.Agent {
       mcpClients,
       tools,
       toolCallNames: new Map(),
-      pendingPrompt: undefined
+      pendingPrompt: undefined,
+      promptQueue: Promise.resolve()
     };
 
     this.#sessions.set(session.id, session);
@@ -91,7 +93,8 @@ export class FledglingAgent implements acp.Agent {
       mcpClients,
       tools,
       toolCallNames: new Map(),
-      pendingPrompt: undefined
+      pendingPrompt: undefined,
+      promptQueue: Promise.resolve()
     };
 
     if (existingSession) {
@@ -124,37 +127,56 @@ export class FledglingAgent implements acp.Agent {
       throw new Error(`Unknown ACP session: ${params.sessionId}`);
     }
 
+    const response = session.promptQueue
+      .catch(() => undefined)
+      .then(() => {
+        if (this.#sessions.get(session.id) !== session) {
+          return { stopReason: "cancelled" } satisfies acp.PromptResponse;
+        }
+
+        return this.#runPrompt(session, params);
+      });
+    session.promptQueue = response.then(
+      () => undefined,
+      () => undefined
+    );
+
+    return response;
+  }
+
+  async #runPrompt(session: SessionState, params: acp.PromptRequest): Promise<acp.PromptResponse> {
     const userText = extractPromptText(params);
-    session.history.push({ role: "user", content: userText });
-    await this.#sessionStore.append({
-      ...this.#sessionStore.createEventBase(session.id),
-      type: "message.user",
-      text: userText
-    });
-    session.pendingPrompt?.abort();
-    session.pendingPrompt = new AbortController();
-
-    const openai = createOpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      baseURL: process.env.OPENAI_BASE_URL
-    });
-
-    const modelName = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
-    const model =
-      process.env.FLEDGLING_OPENAI_API === "responses" ? openai.responses(modelName) : openai.chat(modelName);
-    const result = streamText({
-      model,
-      system: process.env.FLEDGLING_SYSTEM_PROMPT ?? DEFAULT_SYSTEM_PROMPT,
-      messages: session.history,
-      tools: session.tools,
-      toolChoice: getToolChoice(session.tools),
-      stopWhen: stepCountIs(5),
-      abortSignal: session.pendingPrompt.signal
-    });
+    const promptController = new AbortController();
+    session.pendingPrompt = promptController;
 
     let assistantText = "";
 
     try {
+      session.history.push({ role: "user", content: userText });
+      await this.#sessionStore.append({
+        ...this.#sessionStore.createEventBase(session.id),
+        type: "message.user",
+        text: userText
+      });
+
+      const openai = createOpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        baseURL: process.env.OPENAI_BASE_URL
+      });
+
+      const modelName = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+      const model =
+        process.env.FLEDGLING_OPENAI_API === "responses" ? openai.responses(modelName) : openai.chat(modelName);
+      const result = streamText({
+        model,
+        system: process.env.FLEDGLING_SYSTEM_PROMPT ?? DEFAULT_SYSTEM_PROMPT,
+        messages: session.history,
+        tools: session.tools,
+        toolChoice: getToolChoice(session.tools),
+        stopWhen: stepCountIs(5),
+        abortSignal: promptController.signal
+      });
+
       for await (const part of result.fullStream) {
         if (process.env.FLEDGLING_DEBUG_STREAM === "1") {
           console.error(JSON.stringify({ streamPart: part.type }));
@@ -265,25 +287,28 @@ export class FledglingAgent implements acp.Agent {
           }
         }
       }
+
+      session.history.push({ role: "assistant", content: assistantText });
+      await this.#sessionStore.append({
+        ...this.#sessionStore.createEventBase(session.id),
+        type: "message.assistant",
+        text: assistantText
+      });
+
+      return {
+        stopReason: "end_turn"
+      };
     } catch (error: unknown) {
-      if (session.pendingPrompt.signal.aborted) {
+      if (promptController.signal.aborted) {
         return { stopReason: "cancelled" };
       }
 
       throw error;
+    } finally {
+      if (session.pendingPrompt === promptController) {
+        session.pendingPrompt = undefined;
+      }
     }
-
-    session.history.push({ role: "assistant", content: assistantText });
-    session.pendingPrompt = undefined;
-    await this.#sessionStore.append({
-      ...this.#sessionStore.createEventBase(session.id),
-      type: "message.assistant",
-      text: assistantText
-    });
-
-    return {
-      stopReason: "end_turn"
-    };
   }
 
   public async cancel(_params: acp.CancelNotification): Promise<void> {
