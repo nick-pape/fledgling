@@ -10,8 +10,8 @@ describe("FledglingAgent session lifecycle", () => {
   let tempDir: string | undefined;
 
   afterEach(async () => {
-    process.env.FLEDGLING_CONFIG = originalConfig;
-    process.env.FLEDGLING_SESSION_FILE = originalSessionFile;
+    restoreEnv("FLEDGLING_CONFIG", originalConfig);
+    restoreEnv("FLEDGLING_SESSION_FILE", originalSessionFile);
     vi.doUnmock("@ai-sdk/mcp");
     vi.doUnmock("@ai-sdk/mcp/mcp-stdio");
     vi.resetModules();
@@ -67,3 +67,12 @@ describe("FledglingAgent session lifecycle", () => {
     expect(secondClient.close).not.toHaveBeenCalled();
   });
 });
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
+}
