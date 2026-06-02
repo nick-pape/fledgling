@@ -83,6 +83,7 @@ export class FledglingAgent implements acp.Agent {
     const events = await this.#sessionStore.load(params.sessionId);
     const context = buildContext(events, { mode: "replay" });
     const { mcpClients, tools } = await createSessionTools(params.cwd, params.mcpServers);
+    const existingSession = this.#sessions.get(params.sessionId);
     const session: SessionState = {
       id: params.sessionId,
       cwd: params.cwd,
@@ -92,6 +93,10 @@ export class FledglingAgent implements acp.Agent {
       toolCallNames: new Map(),
       pendingPrompt: undefined
     };
+
+    if (existingSession) {
+      await this.#sessionCleanup.closeSession(existingSession, "session-replaced");
+    }
 
     this.#sessions.set(session.id, session);
     await this.#sessionStore.append({
