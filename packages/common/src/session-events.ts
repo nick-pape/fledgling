@@ -10,6 +10,7 @@ export type SessionEvent =
   | AssistantMessageEvent
   | ToolCallEvent
   | ToolResultEvent
+  | SessionErrorEvent
   | CompactionEvent;
 
 export interface SessionEventBase {
@@ -56,6 +57,17 @@ export type ToolResultEvent = SessionEventBase & {
   readonly text: string;
   readonly rawOutput: unknown;
   readonly contextHint: unknown;
+};
+
+export type SessionErrorEvent = SessionEventBase & {
+  readonly type: "session.error";
+  readonly kind: "model_start_failed" | "model_stream_failed" | "prompt_cleanup_failed";
+  readonly phase: "model_start" | "model_stream" | "cleanup";
+  readonly message: string;
+  readonly recoverable: boolean;
+  readonly assistantTextPersisted: boolean;
+  readonly errorName: string | undefined;
+  readonly errorCode: string | undefined;
 };
 
 export type CompactionEvent = SessionEventBase & {

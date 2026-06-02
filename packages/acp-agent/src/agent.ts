@@ -1,6 +1,7 @@
 import * as acp from "@agentclientprotocol/sdk";
 import type { experimental_MCPClient as MCPClient } from "@ai-sdk/mcp";
 import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
+import type { SessionErrorEvent } from "@fledgling/common";
 import { buildContext } from "@fledgling/context-builder";
 import { SessionStore } from "@fledgling/session-log";
 import { stepCountIs, streamText, type CoreMessage, type LanguageModel, type ToolSet } from "ai";
@@ -65,6 +66,18 @@ interface ModelTurnRequest {
 
 interface ModelTurnResult {
   readonly fullStream: AsyncIterable<ModelStreamPart>;
+}
+
+type PromptErrorKind = SessionErrorEvent["kind"];
+type PromptErrorPhase = SessionErrorEvent["phase"];
+
+interface NormalizedPromptError {
+  readonly kind: PromptErrorKind;
+  readonly phase: PromptErrorPhase;
+  readonly message: string;
+  readonly recoverable: boolean;
+  readonly errorName: string | undefined;
+  readonly errorCode: string | undefined;
 }
 
 export interface FledglingAgentDependencies {
@@ -175,7 +188,7 @@ export class FledglingAgent implements acp.Agent {
   public async prompt(params: acp.PromptRequest): Promise<acp.PromptResponse> {
     const session = this.#sessions.get(params.sessionId);
     if (!session) {
-      throw new Error(`Unknown ACP session: ${params.sessionId}`);
+      throw new Error(`Unknown ACP session: ${sanitizeErrorMessage(params.sessionId)}`);
     }
 
     const response = session.promptQueue
@@ -210,129 +223,154 @@ export class FledglingAgent implements acp.Agent {
         text: userText
       });
 
-      const result = this.#dependencies.runModelTurn({
-        messages: session.history,
-        tools: session.tools,
-        abortSignal: promptController.signal
-      });
-
-      for await (const part of result.fullStream) {
-        if (process.env.FLEDGLING_DEBUG_STREAM === "1") {
-          console.error(JSON.stringify({ streamPart: part.type }));
-        }
-
-        switch (part.type) {
-          case "text-delta": {
-            assistantText += part.text;
-            await this.#connection.sessionUpdate({
-              sessionId: params.sessionId,
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: {
-                  type: "text",
-                  text: part.text
-                }
-              }
-            });
-            break;
-          }
-
-          case "tool-call": {
-            session.toolCallNames.set(part.toolCallId, part.toolName);
-            await this.#dependencies.sessionStore.append({
-              ...this.#dependencies.sessionStore.createEventBase(session.id),
-              type: "tool.call",
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              title: part.toolName,
-              rawInput: part.input
-            });
-            await this.#connection.sessionUpdate({
-              sessionId: params.sessionId,
-              update: {
-                sessionUpdate: "tool_call",
-                toolCallId: part.toolCallId,
-                title: part.toolName,
-                kind: "other",
-                status: "pending",
-                rawInput: toRawObject(part.input)
-              }
-            });
-            break;
-          }
-
-          case "tool-result": {
-            await this.#dependencies.sessionStore.append({
-              ...this.#dependencies.sessionStore.createEventBase(session.id),
-              type: "tool.result",
-              toolCallId: part.toolCallId,
-              toolName: session.toolCallNames.get(part.toolCallId),
-              status: "completed",
-              text: stringifyToolOutput(part.output),
-              rawOutput: part.output,
-              contextHint: extractContextHint(part.output)
-            });
-            await this.#connection.sessionUpdate({
-              sessionId: params.sessionId,
-              update: {
-                sessionUpdate: "tool_call_update",
-                toolCallId: part.toolCallId,
-                status: "completed",
-                content: [
-                  {
-                    type: "content",
-                    content: {
-                      type: "text",
-                      text: stringifyToolOutput(part.output)
-                    }
-                  }
-                ],
-                rawOutput: toRawObject(part.output)
-              }
-            });
-            break;
-          }
-
-          case "tool-error": {
-            await this.#dependencies.sessionStore.append({
-              ...this.#dependencies.sessionStore.createEventBase(session.id),
-              type: "tool.result",
-              toolCallId: part.toolCallId,
-              toolName: session.toolCallNames.get(part.toolCallId),
-              status: "failed",
-              text: stringifyToolOutput(part.error),
-              rawOutput: toRawObject(part.error),
-              contextHint: undefined
-            });
-            await this.#connection.sessionUpdate({
-              sessionId: params.sessionId,
-              update: {
-                sessionUpdate: "tool_call_update",
-                toolCallId: part.toolCallId,
-                status: "failed",
-                content: [
-                  {
-                    type: "content",
-                    content: {
-                      type: "text",
-                      text: stringifyToolOutput(part.error)
-                    }
-                  }
-                ],
-                rawOutput: toRawObject(part.error)
-              }
-            });
-            break;
-          }
-        }
+      let result: ModelTurnResult;
+      try {
+        result = this.#dependencies.runModelTurn({
+          messages: session.history,
+          tools: session.tools,
+          abortSignal: promptController.signal
+        });
+      } catch (error: unknown) {
+        await this.#recordPromptError(session, params.sessionId, {
+          error,
+          kind: "model_start_failed",
+          phase: "model_start",
+          assistantTextPersisted: false
+        });
+        throw createPromptRpcError(error, "model_start");
       }
 
-      session.history.push({ role: "assistant", content: assistantText });
-      await this.#dependencies.sessionStore.append({
-        ...this.#dependencies.sessionStore.createEventBase(session.id),
-        type: "message.assistant",
-        text: assistantText
-      });
+      try {
+        for await (const part of result.fullStream) {
+          if (process.env.FLEDGLING_DEBUG_STREAM === "1") {
+            console.error(JSON.stringify({ streamPart: part.type }));
+          }
+
+          switch (part.type) {
+            case "text-delta": {
+              assistantText += part.text;
+              await this.#connection.sessionUpdate({
+                sessionId: params.sessionId,
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: {
+                    type: "text",
+                    text: part.text
+                  }
+                }
+              });
+              break;
+            }
+
+            case "tool-call": {
+              session.toolCallNames.set(part.toolCallId, part.toolName);
+              await this.#dependencies.sessionStore.append({
+                ...this.#dependencies.sessionStore.createEventBase(session.id),
+                type: "tool.call",
+                toolCallId: part.toolCallId,
+                toolName: part.toolName,
+                title: part.toolName,
+                rawInput: part.input
+              });
+              await this.#connection.sessionUpdate({
+                sessionId: params.sessionId,
+                update: {
+                  sessionUpdate: "tool_call",
+                  toolCallId: part.toolCallId,
+                  title: part.toolName,
+                  kind: "other",
+                  status: "pending",
+                  rawInput: toRawObject(part.input)
+                }
+              });
+              break;
+            }
+
+            case "tool-result": {
+              await this.#dependencies.sessionStore.append({
+                ...this.#dependencies.sessionStore.createEventBase(session.id),
+                type: "tool.result",
+                toolCallId: part.toolCallId,
+                toolName: session.toolCallNames.get(part.toolCallId),
+                status: "completed",
+                text: stringifyToolOutput(part.output),
+                rawOutput: part.output,
+                contextHint: extractContextHint(part.output)
+              });
+              await this.#connection.sessionUpdate({
+                sessionId: params.sessionId,
+                update: {
+                  sessionUpdate: "tool_call_update",
+                  toolCallId: part.toolCallId,
+                  status: "completed",
+                  content: [
+                    {
+                      type: "content",
+                      content: {
+                        type: "text",
+                        text: stringifyToolOutput(part.output)
+                      }
+                    }
+                  ],
+                  rawOutput: toRawObject(part.output)
+                }
+              });
+              break;
+            }
+
+            case "tool-error": {
+              await this.#dependencies.sessionStore.append({
+                ...this.#dependencies.sessionStore.createEventBase(session.id),
+                type: "tool.result",
+                toolCallId: part.toolCallId,
+                toolName: session.toolCallNames.get(part.toolCallId),
+                status: "failed",
+                text: stringifyToolOutput(part.error),
+                rawOutput: toRawObject(part.error),
+                contextHint: undefined
+              });
+              await this.#connection.sessionUpdate({
+                sessionId: params.sessionId,
+                update: {
+                  sessionUpdate: "tool_call_update",
+                  toolCallId: part.toolCallId,
+                  status: "failed",
+                  content: [
+                    {
+                      type: "content",
+                      content: {
+                        type: "text",
+                        text: stringifyToolOutput(part.error)
+                      }
+                    }
+                  ],
+                  rawOutput: toRawObject(part.error)
+                }
+              });
+              break;
+            }
+          }
+        }
+      } catch (error: unknown) {
+        if (promptController.signal.aborted) {
+          return { stopReason: "cancelled" };
+        }
+
+        const assistantTextPersisted = assistantText.length > 0;
+        if (assistantTextPersisted) {
+          await this.#persistAssistantMessage(session, assistantText);
+        }
+
+        await this.#recordPromptError(session, params.sessionId, {
+          error,
+          kind: "model_stream_failed",
+          phase: "model_stream",
+          assistantTextPersisted
+        });
+        throw createPromptRpcError(error, "model_stream");
+      }
+
+      await this.#persistAssistantMessage(session, assistantText);
 
       return {
         stopReason: "end_turn"
@@ -350,6 +388,49 @@ export class FledglingAgent implements acp.Agent {
     }
   }
 
+  async #persistAssistantMessage(session: SessionState, assistantText: string): Promise<void> {
+    session.history.push({ role: "assistant", content: assistantText });
+    await this.#dependencies.sessionStore.append({
+      ...this.#dependencies.sessionStore.createEventBase(session.id),
+      type: "message.assistant",
+      text: assistantText
+    });
+  }
+
+  async #recordPromptError(
+    session: SessionState,
+    sessionId: string,
+    options: {
+      readonly error: unknown;
+      readonly kind: PromptErrorKind;
+      readonly phase: PromptErrorPhase;
+      readonly assistantTextPersisted: boolean;
+    }
+  ): Promise<void> {
+    const normalized = normalizePromptError(options.error, options.kind, options.phase);
+    await this.#connection.sessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: `\n\n[Fledgling error: ${formatPromptErrorKind(normalized.kind)}. ${normalized.message}]`
+        }
+      }
+    });
+    await this.#dependencies.sessionStore.append({
+      ...this.#dependencies.sessionStore.createEventBase(session.id),
+      type: "session.error",
+      kind: normalized.kind,
+      phase: normalized.phase,
+      message: normalized.message,
+      recoverable: normalized.recoverable,
+      assistantTextPersisted: options.assistantTextPersisted,
+      errorName: normalized.errorName,
+      errorCode: normalized.errorCode
+    });
+  }
+
   public async cancel(_params: acp.CancelNotification): Promise<void> {
     this.#sessions.get(_params.sessionId)?.pendingPrompt?.abort();
   }
@@ -357,6 +438,94 @@ export class FledglingAgent implements acp.Agent {
   public closeAllSessions(reason: string): Promise<void> {
     return this.#sessionCleanup.closeAll(reason);
   }
+}
+
+function normalizePromptError(error: unknown, kind: PromptErrorKind, phase: PromptErrorPhase): NormalizedPromptError {
+  return {
+    kind,
+    phase,
+    message: sanitizeErrorMessage(extractErrorMessage(error)),
+    recoverable: true,
+    errorName: extractErrorName(error),
+    errorCode: extractErrorCode(error)
+  };
+}
+
+function createPromptRpcError(error: unknown, phase: "model_start" | "model_stream"): Error {
+  const normalized = normalizePromptError(
+    error,
+    phase === "model_start" ? "model_start_failed" : "model_stream_failed",
+    phase
+  );
+  return new Error(`Fledgling ${formatPromptErrorKind(normalized.kind)}: ${normalized.message}`);
+}
+
+function formatPromptErrorKind(kind: PromptErrorKind): string {
+  switch (kind) {
+    case "model_start_failed":
+      return "model start failed";
+
+    case "model_stream_failed":
+      return "model stream failed";
+
+    case "prompt_cleanup_failed":
+      return "prompt cleanup failed";
+  }
+}
+
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { readonly message?: unknown }).message;
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+
+  return "Unknown error";
+}
+
+function extractErrorName(error: unknown): string | undefined {
+  if (error instanceof Error) {
+    return error.name;
+  }
+
+  if (error && typeof error === "object" && "name" in error) {
+    const name = (error as { readonly name?: unknown }).name;
+    return typeof name === "string" ? sanitizeErrorMessage(name) : undefined;
+  }
+
+  return undefined;
+}
+
+function extractErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object" || !("code" in error)) {
+    return undefined;
+  }
+
+  const code = (error as { readonly code?: unknown }).code;
+  if (typeof code === "string" || typeof code === "number") {
+    return sanitizeErrorMessage(String(code));
+  }
+
+  return undefined;
+}
+
+function sanitizeErrorMessage(message: string): string {
+  const normalized = message.replace(/\s+/g, " ").trim() || "Unknown error";
+  const redacted = normalized
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "sk-[redacted]")
+    .replace(/\b(api[_-]?key|token|secret|password)=\S+/gi, "$1=[redacted]");
+
+  return redacted.length > 500 ? `${redacted.slice(0, 497)}...` : redacted;
 }
 
 async function replaySessionHistory(connection: acp.AgentSideConnection, session: SessionState): Promise<void> {
