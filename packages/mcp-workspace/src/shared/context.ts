@@ -26,7 +26,7 @@ export type ContextRetention =
   | "retain_until_changed"
   | "retain_for_session";
 
-export type ContextHint = {
+export interface ContextHint {
   readonly kind: ContextKind;
   readonly identity?: string;
   readonly contentHash?: string;
@@ -35,7 +35,7 @@ export type ContextHint = {
   readonly retention: ContextRetention;
   readonly priority?: number;
   readonly routingTags?: string[];
-};
+}
 
 export type JsonRecord = Record<string, unknown>;
 

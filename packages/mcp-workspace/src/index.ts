@@ -5,7 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { registerWorkspaceTools } from "./tools/index.js";
 
-const server = new McpServer(
+const server: McpServer = new McpServer(
   {
     name: "fledgling-workspace",
     version: "0.0.0"

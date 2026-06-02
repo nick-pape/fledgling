@@ -17,7 +17,7 @@ import { stepCountIs, streamText, type CoreMessage, type ToolSet } from "ai";
 import { serializeError, SessionCleanup } from "./session-cleanup.js";
 import { SessionStore } from "./session-store.js";
 
-type SessionState = {
+interface SessionState {
   readonly id: string;
   readonly cwd: string | undefined;
   readonly history: CoreMessage[];
@@ -25,22 +25,22 @@ type SessionState = {
   readonly tools: ToolSet;
   readonly toolCallNames: Map<string, string>;
   pendingPrompt: AbortController | undefined;
-};
+}
 
-const DEFAULT_SYSTEM_PROMPT =
+const DEFAULT_SYSTEM_PROMPT: string =
   "You are Fledgling, a small ACP-native assistant. Answer directly. Use tools when they are available and useful. If the user asks you to inspect, create, modify, delete, search, or execute something in the workspace, use the relevant workspace tool instead of only describing what you would do. If the user asks you to write content to a file, call the file-writing tool. Do not claim you cannot access files when a relevant workspace tool is available. Tool results may include Fledgling context hints that describe identity, retention, and prompt placement for future context assembly.";
 
-type FledglingConfig = {
+interface FledglingConfig {
   readonly mcpServers?: Record<string, McpServerConfig>;
-};
+}
 
 type McpOrigin = "acp_client" | "config" | "first_party";
 
-type ResolvedMcpServer = {
+interface ResolvedMcpServer {
   readonly name: string;
   readonly origin: McpOrigin;
   readonly config: McpServerConfig;
-};
+}
 
 type McpServerConfig =
   | {
@@ -59,13 +59,13 @@ type McpServerConfig =
       readonly headers?: Record<string, string>;
     };
 
-const configPromise = loadConfig();
+const configPromise: Promise<FledglingConfig> = loadConfig();
 
 class FledglingAgent implements acp.Agent {
   readonly #connection: acp.AgentSideConnection;
-  readonly #sessions = new Map<string, SessionState>();
-  readonly #sessionStore = new SessionStore();
-  readonly #sessionCleanup = new SessionCleanup(
+  readonly #sessions: Map<string, SessionState> = new Map<string, SessionState>();
+  readonly #sessionStore: SessionStore = new SessionStore();
+  readonly #sessionCleanup: SessionCleanup = new SessionCleanup(
     () => this.#sessions.values(),
     () => this.#sessions.clear()
   );
@@ -222,7 +222,7 @@ class FledglingAgent implements acp.Agent {
                 title: part.toolName,
                 kind: "other",
                 status: "pending",
-                rawInput: part.input
+                rawInput: toRawObject(part.input)
               }
             });
             break;
@@ -254,7 +254,7 @@ class FledglingAgent implements acp.Agent {
                     }
                   }
                 ],
-                rawOutput: part.output
+                rawOutput: toRawObject(part.output)
               }
             });
             break;
@@ -359,7 +359,7 @@ function messageContentToText(content: CoreMessage["content"]): string {
           return part;
         }
 
-        if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+        if (typeof part === "object" && "text" in part && typeof part.text === "string") {
           return part.text;
         }
 
@@ -385,7 +385,7 @@ function extractPromptText(params: acp.PromptRequest): string {
           return part;
         }
 
-        if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+        if (typeof part === "object" && "text" in part && typeof part.text === "string") {
           return part.text;
         }
 
@@ -611,9 +611,9 @@ function toRawObject(value: unknown): Record<string, unknown> {
   return { value };
 }
 
-const input = Writable.toWeb(process.stdout);
-const output = Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>;
-const stream = acp.ndJsonStream(input, output);
+const input: WritableStream<Uint8Array> = Writable.toWeb(process.stdout);
+const output: ReadableStream<Uint8Array> = Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>;
+const stream: ReturnType<typeof acp.ndJsonStream> = acp.ndJsonStream(input, output);
 
 let activeAgent: FledglingAgent | undefined;
 let shutdownPromise: Promise<void> | undefined;
@@ -639,29 +639,42 @@ function logFatal(event: string, error: unknown): void {
 }
 
 process.once("SIGINT", () => {
-  void shutdownAndExit("SIGINT", 130);
+  shutdownAndExit("SIGINT", 130).catch((error: unknown) => {
+    logFatal("shutdown_failed", error);
+    process.exit(1);
+  });
 });
 
 process.once("SIGTERM", () => {
-  void shutdownAndExit("SIGTERM", 143);
+  shutdownAndExit("SIGTERM", 143).catch((error: unknown) => {
+    logFatal("shutdown_failed", error);
+    process.exit(1);
+  });
 });
 
 process.once("beforeExit", () => {
-  void shutdownAgent("beforeExit").catch((error: unknown) => {
+  shutdownAgent("beforeExit").catch((error: unknown) => {
     logFatal("shutdown_failed", error);
   });
 });
 
 process.once("uncaughtException", (error: Error) => {
   logFatal("uncaught_exception", error);
-  void shutdownAndExit("uncaughtException", 1);
+  shutdownAndExit("uncaughtException", 1).catch((shutdownError: unknown) => {
+    logFatal("shutdown_failed", shutdownError);
+    process.exit(1);
+  });
 });
 
 process.once("unhandledRejection", (reason: unknown) => {
   logFatal("unhandled_rejection", reason);
-  void shutdownAndExit("unhandledRejection", 1);
+  shutdownAndExit("unhandledRejection", 1).catch((error: unknown) => {
+    logFatal("shutdown_failed", error);
+    process.exit(1);
+  });
 });
 
+// eslint-disable-next-line no-new -- AgentSideConnection owns the stdio lifecycle.
 new acp.AgentSideConnection((connection) => {
   activeAgent = new FledglingAgent(connection);
   return activeAgent;

@@ -3,77 +3,73 @@ import type { ContextMessage, SessionEvent } from "@fledgling/common";
 import { pruneOldVolatileEvents, type DroppedEvent, type PruneEventsOptions } from "./prune-events.js";
 import { estimateEventTokens, estimateMessagesTokens } from "./token-estimator.js";
 
-export type BuildReplayContextOptions = {
+export interface BuildReplayContextOptions {
   readonly mode: "replay";
-};
+}
 
-export type BuiltContext = {
+export interface BuiltContext {
   readonly messages: ContextMessage[];
   readonly events: SessionEvent[];
   readonly dropped: DroppedEvent[];
   readonly tokenEstimate: number;
-};
+}
 
-export type PrepareCompactionOptions = {
+export interface PrepareCompactionOptions {
   readonly keepLatestTurns: number;
   readonly prune?: PruneEventsOptions;
   readonly maxCompactionInputTokens?: number;
-};
+}
 
-export type PreparedCompaction = {
+export interface PreparedCompaction {
   readonly eventsToCompact: SessionEvent[];
   readonly retainedEvents: SessionEvent[];
   readonly dropped: DroppedEvent[];
   readonly compactionInputTokenEstimate: number;
   readonly retainedTokenEstimate: number;
   readonly needsCompaction: boolean;
-};
+}
 
-export type BuildCompactedContextOptions = {
+export interface BuildCompactedContextOptions {
   readonly summary: string;
   readonly retainedEvents: readonly SessionEvent[];
-};
+}
 
-export type CompactionModelRequest = {
+export interface CompactionModelRequest {
   readonly events: SessionEvent[];
   readonly targetTokens: number | undefined;
   readonly instructions: string;
   readonly inputTokenEstimate: number;
-};
+}
 
-export type CompactionModelResult = {
+export interface CompactionModelResult {
   readonly summary: string;
   readonly tokenEstimate?: number;
-};
+}
 
 export type CompactionFunction = (request: CompactionModelRequest) => Promise<CompactionModelResult>;
 
-export type CompactContextOptions = PrepareCompactionOptions & {
+export interface CompactContextOptions extends PrepareCompactionOptions {
   readonly targetTokens?: number;
   readonly instructions?: string;
   readonly compact: CompactionFunction;
-};
+}
 
-export type CompactedContextResult = BuiltContext & {
+export interface CompactedContextResult extends BuiltContext {
   readonly prepared: PreparedCompaction;
   readonly summary: string | undefined;
-};
+}
 
-export const DEFAULT_COMPACTION_INSTRUCTIONS =
+export const DEFAULT_COMPACTION_INSTRUCTIONS: string =
   "Write a detailed continuity summary for resuming a coding-agent session. Preserve user goals, decisions, constraints, rejected approaches, files or modules discussed, pending work, and historical observations that may need refresh. Do not treat old command output, file contents, git status, test results, or directory listings as current truth.";
 
-export function buildContext(events: readonly SessionEvent[], options: BuildReplayContextOptions): BuiltContext {
-  switch (options.mode) {
-    case "replay": {
-      const messages = eventsToMessages(events);
-      return {
-        messages,
-        events: [...events],
-        dropped: [],
-        tokenEstimate: estimateMessagesTokens(messages)
-      };
-    }
-  }
+export function buildContext(events: readonly SessionEvent[], _options: BuildReplayContextOptions): BuiltContext {
+  const messages = eventsToMessages(events);
+  return {
+    messages,
+    events: [...events],
+    dropped: [],
+    tokenEstimate: estimateMessagesTokens(messages)
+  };
 }
 
 export async function compactContext(

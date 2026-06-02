@@ -1,7 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const workspaceRoot = path.resolve(process.env.FLEDGLING_WORKSPACE_ROOT ?? process.cwd());
+export const workspaceRoot: string = path.resolve(process.env.FLEDGLING_WORKSPACE_ROOT ?? process.cwd());
 
 export function resolveWorkspacePath(requestedPath: string): string {
   const absolutePath = path.resolve(workspaceRoot, requestedPath);

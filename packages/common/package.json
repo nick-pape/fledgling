@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "@fledgling/heft-rig": "workspace:*",
-    "@rushstack/heft": "~0.75.0",
+    "@rushstack/heft": "1.2.7",
     "@types/node": "^22.0.0",
     "typescript": "~5.9.0"
   }

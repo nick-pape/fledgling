@@ -1,24 +1,24 @@
-export type McpClientLike = {
+export interface McpClientLike {
   close(): Promise<void> | void;
-};
+}
 
-export type PromptAbortControllerLike = {
+export interface PromptAbortControllerLike {
   abort(): void;
-};
+}
 
-export type SessionCleanupState = {
+export interface SessionCleanupState {
   readonly id: string;
   readonly mcpClients: readonly McpClientLike[];
   readonly pendingPrompt: PromptAbortControllerLike | undefined;
-};
+}
 
-export type McpCloseFailureRecord = {
+export interface McpCloseFailureRecord {
   readonly level: "warn";
   readonly event: "mcp_close_failed";
   readonly sessionId: string;
   readonly reason: string;
   readonly error: string;
-};
+}
 
 type WarnLogger = (record: McpCloseFailureRecord) => void;
 
@@ -81,7 +81,8 @@ export function serializeError(error: unknown): string {
   }
 
   try {
-    return JSON.stringify(error) ?? String(error);
+    const serialized: unknown = JSON.stringify(error);
+    return typeof serialized === "string" ? serialized : String(error);
   } catch {
     return String(error);
   }

@@ -1,20 +1,20 @@
 import type { SessionEvent, ToolCallEvent, ToolResultEvent } from "@fledgling/common";
 
-export type PruneEventsOptions = {
+export interface PruneEventsOptions {
   readonly keepLatestToolResultsPerGroup?: number;
   readonly keepLatestToolCallsPerGroup?: number;
-};
+}
 
-export type PrunedEvents = {
+export interface PrunedEvents {
   readonly events: SessionEvent[];
   readonly dropped: DroppedEvent[];
-};
+}
 
-export type DroppedEvent = {
+export interface DroppedEvent {
   readonly eventId: string;
   readonly type: SessionEvent["type"];
   readonly reason: string;
-};
+}
 
 export function pruneOldVolatileEvents(
   events: readonly SessionEvent[],
