@@ -4,19 +4,32 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { SessionEvent } from "@fledgling/common";
 import { SessionStore } from "@fledgling/session-log";
 
 import type { FledglingAgent, FledglingAgentDependencies } from "./agent.js";
 
-interface StreamPart {
-  readonly type: string;
-  readonly text?: string;
-  readonly toolCallId?: string;
-  readonly toolName?: string;
-  readonly input?: unknown;
-  readonly output?: unknown;
-  readonly error?: unknown;
-}
+type StreamPart =
+  | {
+      readonly type: "text-delta";
+      readonly text: string;
+    }
+  | {
+      readonly type: "tool-call";
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly input: unknown;
+    }
+  | {
+      readonly type: "tool-result";
+      readonly toolCallId: string;
+      readonly output: unknown;
+    }
+  | {
+      readonly type: "tool-error";
+      readonly toolCallId: string;
+      readonly error: unknown;
+    };
 
 interface ControlledStream {
   readonly result: { readonly fullStream: AsyncIterable<StreamPart> };
@@ -327,19 +340,19 @@ function createImmediateStream(parts: readonly StreamPart[]): { readonly fullStr
 async function loadStoredMessages(sessionFile: string): Promise<[string, string][]> {
   return (await loadStoredEvents(sessionFile))
     .filter((event) => event.type === "message.user" || event.type === "message.assistant")
-    .map((event) => [event.type, event.text ?? ""]);
+    .map((event) => [event.type, event.text]);
 }
 
 async function loadStoredEventTypes(sessionFile: string): Promise<string[]> {
   return (await loadStoredEvents(sessionFile)).map((event) => event.type);
 }
 
-async function loadStoredEvents(sessionFile: string): Promise<Array<{ readonly type: string; readonly text?: string }>> {
+async function loadStoredEvents(sessionFile: string): Promise<SessionEvent[]> {
   const raw = await readFile(sessionFile, "utf8");
   return raw
     .split(/\r?\n/)
     .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as { readonly type: string; readonly text?: string });
+    .map((line) => JSON.parse(line) as SessionEvent);
 }
 
 async function waitFor(assertion: () => void): Promise<void> {

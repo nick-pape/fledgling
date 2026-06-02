@@ -15,6 +15,15 @@ import {
 } from "./prompt-content.js";
 import { SessionCleanup } from "./session-cleanup.js";
 
+type SessionEventBase = ReturnType<SessionStore["createEventBase"]>;
+
+export interface SessionStoreLike {
+  createId(): string;
+  createEventBase(sessionId: string): SessionEventBase;
+  append(event: Parameters<SessionStore["append"]>[0]): Promise<void>;
+  load(sessionId: string): Promise<Awaited<ReturnType<SessionStore["load"]>>>;
+}
+
 interface SessionState {
   readonly id: string;
   readonly cwd: string | undefined;
@@ -60,7 +69,7 @@ interface ModelTurnResult {
 
 export interface FledglingAgentDependencies {
   readonly createSessionTools: typeof createSessionTools;
-  readonly sessionStore: SessionStore;
+  readonly sessionStore: SessionStoreLike;
   readonly runModelTurn: (request: ModelTurnRequest) => ModelTurnResult;
 }
 
