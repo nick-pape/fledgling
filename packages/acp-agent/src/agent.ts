@@ -148,34 +148,35 @@ export class FledglingAgent implements acp.Agent {
     const userText = extractPromptText(params);
     const promptController = new AbortController();
     session.pendingPrompt = promptController;
-    session.history.push({ role: "user", content: userText });
-    await this.#sessionStore.append({
-      ...this.#sessionStore.createEventBase(session.id),
-      type: "message.user",
-      text: userText
-    });
-
-    const openai = createOpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      baseURL: process.env.OPENAI_BASE_URL
-    });
-
-    const modelName = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
-    const model =
-      process.env.FLEDGLING_OPENAI_API === "responses" ? openai.responses(modelName) : openai.chat(modelName);
-    const result = streamText({
-      model,
-      system: process.env.FLEDGLING_SYSTEM_PROMPT ?? DEFAULT_SYSTEM_PROMPT,
-      messages: session.history,
-      tools: session.tools,
-      toolChoice: getToolChoice(session.tools),
-      stopWhen: stepCountIs(5),
-      abortSignal: promptController.signal
-    });
 
     let assistantText = "";
 
     try {
+      session.history.push({ role: "user", content: userText });
+      await this.#sessionStore.append({
+        ...this.#sessionStore.createEventBase(session.id),
+        type: "message.user",
+        text: userText
+      });
+
+      const openai = createOpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        baseURL: process.env.OPENAI_BASE_URL
+      });
+
+      const modelName = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+      const model =
+        process.env.FLEDGLING_OPENAI_API === "responses" ? openai.responses(modelName) : openai.chat(modelName);
+      const result = streamText({
+        model,
+        system: process.env.FLEDGLING_SYSTEM_PROMPT ?? DEFAULT_SYSTEM_PROMPT,
+        messages: session.history,
+        tools: session.tools,
+        toolChoice: getToolChoice(session.tools),
+        stopWhen: stepCountIs(5),
+        abortSignal: promptController.signal
+      });
+
       for await (const part of result.fullStream) {
         if (process.env.FLEDGLING_DEBUG_STREAM === "1") {
           console.error(JSON.stringify({ streamPart: part.type }));
@@ -286,6 +287,17 @@ export class FledglingAgent implements acp.Agent {
           }
         }
       }
+
+      session.history.push({ role: "assistant", content: assistantText });
+      await this.#sessionStore.append({
+        ...this.#sessionStore.createEventBase(session.id),
+        type: "message.assistant",
+        text: assistantText
+      });
+
+      return {
+        stopReason: "end_turn"
+      };
     } catch (error: unknown) {
       if (promptController.signal.aborted) {
         return { stopReason: "cancelled" };
@@ -297,17 +309,6 @@ export class FledglingAgent implements acp.Agent {
         session.pendingPrompt = undefined;
       }
     }
-
-    session.history.push({ role: "assistant", content: assistantText });
-    await this.#sessionStore.append({
-      ...this.#sessionStore.createEventBase(session.id),
-      type: "message.assistant",
-      text: assistantText
-    });
-
-    return {
-      stopReason: "end_turn"
-    };
   }
 
   public async cancel(_params: acp.CancelNotification): Promise<void> {

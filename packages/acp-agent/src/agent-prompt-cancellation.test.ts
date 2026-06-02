@@ -82,10 +82,31 @@ describe("FledglingAgent prompt cancellation", () => {
     await expect(secondPrompt).resolves.toEqual({ stopReason: "end_turn" });
   });
 
+  it("cancels a queued prompt if its session is replaced before it starts", async () => {
+    const { agent, sessionId, streamText, sessionFile, tempDir } = await createTestAgent();
+    streamText.mockImplementationOnce(({ abortSignal }: { readonly abortSignal: AbortSignal }) =>
+      createAbortableStream(abortSignal)
+    );
+
+    const firstPrompt = agent.prompt({ sessionId, prompt: [{ type: "text", text: "one" }] });
+    await waitFor(() => expect(streamText).toHaveBeenCalledTimes(1));
+
+    const secondPrompt = agent.prompt({ sessionId, prompt: [{ type: "text", text: "two" }] });
+    await agent.loadSession({ sessionId, cwd: tempDir, mcpServers: [] });
+
+    await expect(firstPrompt).resolves.toEqual({ stopReason: "cancelled" });
+    await expect(secondPrompt).resolves.toEqual({ stopReason: "cancelled" });
+    expect(streamText).toHaveBeenCalledTimes(1);
+
+    const messages = await loadStoredMessages(sessionFile);
+    expect(messages).toEqual([["message.user", "one"]]);
+  });
+
   async function createTestAgent(): Promise<{
     readonly agent: import("./agent.js").FledglingAgent;
     readonly sessionId: string;
     readonly sessionFile: string;
+    readonly tempDir: string;
     readonly streamText: ReturnType<typeof vi.fn>;
   }> {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "fledgling-prompt-test-"));
@@ -114,7 +135,7 @@ describe("FledglingAgent prompt cancellation", () => {
     } as never);
     const session = await agent.newSession({ cwd: tempDir, mcpServers: [] });
 
-    return { agent, sessionId: session.sessionId, sessionFile, streamText };
+    return { agent, sessionId: session.sessionId, sessionFile, tempDir, streamText };
   }
 });
 
@@ -141,6 +162,10 @@ function createAbortableStream(abortSignal: AbortSignal): { readonly fullStream:
       [Symbol.asyncIterator]() {
         return {
           async next(): Promise<IteratorResult<StreamPart>> {
+            if (abortSignal.aborted) {
+              throw new Error("aborted");
+            }
+
             await new Promise<void>((_resolve, reject) => {
               abortSignal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
             });
