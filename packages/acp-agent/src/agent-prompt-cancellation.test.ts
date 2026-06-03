@@ -118,7 +118,7 @@ describe("FledglingAgent prompt cancellation", () => {
   it("normalizes model start failures into diagnostics and durable errors", async () => {
     const { agent, sessionId, streamText, sessionFile, sessionUpdates } = await createTestAgent();
     streamText.mockImplementationOnce(() => {
-      throw new Error("start failed with sk-secret123456");
+      throw new Error("\u001B[31mstart\tfailed\nwith\u0007 sk-secret123456");
     });
 
     await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] })).rejects.toThrow(
