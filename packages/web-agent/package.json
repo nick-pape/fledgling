@@ -1,0 +1,34 @@
+{
+  "name": "@fledgling/web-agent",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Browser composition package for the Fledgling ACP agent loop.",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "heft build --clean",
+    "_phase:build": "heft run --only build -- --clean",
+    "bundle": "webpack --config webpack.config.cjs",
+    "_phase:bundle": "webpack --config webpack.config.cjs"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^0.4.3",
+    "@ai-sdk/mcp": "0.0.18",
+    "@fledgling/agent-core": "workspace:*",
+    "@fledgling/mcp-workspace-webcontainer": "workspace:*",
+    "@fledgling/session-local-storage": "workspace:*",
+    "ai": "^5.0.0"
+  },
+  "devDependencies": {
+    "@fledgling/heft-rig": "workspace:*",
+    "@rushstack/heft": "1.2.7",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^3.1.1",
+    "typescript": "~5.9.0",
+    "vitest": "^3.1.1",
+    "webpack": "^5.99.9",
+    "webpack-cli": "^6.0.1"
+  }
+}

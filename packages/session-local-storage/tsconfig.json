@@ -1,0 +1,9 @@
+{
+  "extends": "../../rigs/heft-rig/profiles/default/tsconfig-base.json",
+  "compilerOptions": {
+    "lib": ["es2022", "dom"],
+    "rootDir": "src",
+    "outDir": "lib"
+  },
+  "include": ["src/**/*.ts"]
+}

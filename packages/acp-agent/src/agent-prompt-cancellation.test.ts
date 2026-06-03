@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionEvent } from "@fledgling/common";
-import { SessionStore } from "@fledgling/session-log";
+import { FileSystemSessionManager } from "@fledgling/session-file-system";
 
 import type { FledglingAgent, FledglingAgentDependencies } from "./agent.js";
 
@@ -324,14 +324,14 @@ describe("FledglingAgent prompt cancellation", () => {
   });
 
   it("replays stored user and assistant messages when loading a session", async () => {
-    const { agent, sessionId, sessionStore, sessionUpdates, tempDir } = await createTestAgent();
-    await sessionStore.append({
-      ...sessionStore.createEventBase(sessionId),
+    const { agent, sessionId, sessionManager, sessionUpdates, tempDir } = await createTestAgent();
+    await sessionManager.appendEvent({
+      ...sessionManager.createEventBase(sessionId),
       type: "message.user",
       text: "previous user"
     });
-    await sessionStore.append({
-      ...sessionStore.createEventBase(sessionId),
+    await sessionManager.appendEvent({
+      ...sessionManager.createEventBase(sessionId),
       type: "message.assistant",
       text: "previous assistant"
     });
@@ -358,13 +358,17 @@ describe("FledglingAgent prompt cancellation", () => {
 
   it("rejects session creation when injected tool setup fails", async () => {
     const { FledglingAgent } = await import("./agent.js");
-    const sessionStore = await createTempSessionStore();
+    const sessionStore = await createTempSessionManager();
     const agent = new FledglingAgent(createFakeConnection() as never, {
-      createSessionTools: vi.fn(async () => {
-        throw new Error("setup failed");
-      }),
-      sessionStore: sessionStore.store,
-      runModelTurn: vi.fn()
+      toolProvider: {
+        createSessionTools: vi.fn(async () => {
+          throw new Error("setup failed");
+        })
+      },
+      sessionManager: sessionStore.manager,
+      modelTurnRunner: {
+        runModelTurn: vi.fn()
+      }
     });
 
     await expect(agent.newSession({ cwd: sessionStore.tempDir, mcpServers: [] })).rejects.toThrow("setup failed");
@@ -374,19 +378,23 @@ describe("FledglingAgent prompt cancellation", () => {
     readonly agent: FledglingAgent;
     readonly sessionId: string;
     readonly sessionFile: string;
-    readonly sessionStore: SessionStore;
+    readonly sessionManager: FileSystemSessionManager;
     readonly sessionUpdates: FakeSessionUpdate[];
     readonly tempDir: string;
     readonly streamText: ReturnType<typeof vi.fn>;
   }> {
-    const { store: sessionStore, sessionFile, tempDir: createdTempDir } = await createTempSessionStore();
+    const { manager: sessionManager, sessionFile, tempDir: createdTempDir } = await createTempSessionManager();
     const sessionUpdates: FakeSessionUpdate[] = [];
     const streamText = vi.fn();
     const { FledglingAgent } = await import("./agent.js");
     const agent = new FledglingAgent(createFakeConnection(sessionUpdates) as never, {
-      createSessionTools: vi.fn(async () => ({ mcpClients: [], tools: {} })),
-      sessionStore,
-      runModelTurn: streamText
+      toolProvider: {
+        createSessionTools: vi.fn(async () => ({ clients: [], tools: {} }))
+      },
+      sessionManager,
+      modelTurnRunner: {
+        runModelTurn: streamText
+      }
     } satisfies FledglingAgentDependencies);
     const session = await agent.newSession({ cwd: createdTempDir, mcpServers: [] });
 
@@ -394,7 +402,7 @@ describe("FledglingAgent prompt cancellation", () => {
       agent,
       sessionId: session.sessionId,
       sessionFile,
-      sessionStore,
+      sessionManager,
       sessionUpdates,
       tempDir: createdTempDir,
       streamText
@@ -418,8 +426,8 @@ function createFakeConnection(sessionUpdates: FakeSessionUpdate[] = []): { sessi
   };
 }
 
-async function createTempSessionStore(): Promise<{
-  readonly store: SessionStore;
+async function createTempSessionManager(): Promise<{
+  readonly manager: FileSystemSessionManager;
   readonly sessionFile: string;
   readonly tempDir: string;
 }> {
@@ -428,7 +436,11 @@ async function createTempSessionStore(): Promise<{
   process.env.FLEDGLING_CONFIG = path.join(createdTempDir, "missing-config.json");
   const sessionFile = path.join(createdTempDir, "session.jsonl");
   process.env.FLEDGLING_SESSION_FILE = sessionFile;
-  return { store: new SessionStore(createdTempDir, sessionFile), sessionFile, tempDir: createdTempDir };
+  return {
+    manager: new FileSystemSessionManager(createdTempDir, sessionFile),
+    sessionFile,
+    tempDir: createdTempDir
+  };
 }
 
 function createControlledStream(parts: readonly StreamPart[]): ControlledStream {
