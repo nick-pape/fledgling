@@ -115,6 +115,146 @@ describe("FledglingAgent prompt cancellation", () => {
     );
   });
 
+  it("normalizes model start failures into diagnostics and durable errors", async () => {
+    const { agent, sessionId, streamText, sessionFile, sessionUpdates } = await createTestAgent();
+    streamText.mockImplementationOnce(() => {
+      throw new Error("\u001B[31mstart\tfailed\nwith\u0007 sk-secret123456");
+    });
+
+    await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] })).rejects.toThrow(
+      "Fledgling model start failed: start failed with sk-[redacted]"
+    );
+
+    expect(sessionUpdates).toEqual([
+      {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "\n\n[Fledgling error: model start failed. start failed with sk-[redacted]]"
+          }
+        }
+      }
+    ]);
+    expect(await loadStoredEvents(sessionFile)).toEqual([
+      expect.objectContaining({ type: "session.created" }),
+      expect.objectContaining({ type: "message.user", text: "hi" }),
+      expect.objectContaining({
+        type: "session.error",
+        kind: "model_start_failed",
+        phase: "model_start",
+        message: "start failed with sk-[redacted]",
+        recoverable: true,
+        assistantTextPersisted: false,
+        errorName: "Error"
+      })
+    ]);
+  });
+
+  it("persists streamed assistant text before durable stream errors", async () => {
+    const { agent, sessionId, streamText, sessionFile, sessionUpdates } = await createTestAgent();
+    streamText.mockReturnValueOnce(createFailingStream([{ type: "text-delta", text: "partial" }], new Error("boom")));
+
+    await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] })).rejects.toThrow(
+      "Fledgling model stream failed: boom"
+    );
+
+    expect(sessionUpdates).toEqual([
+      {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "partial" }
+        }
+      },
+      {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "\n\n[Fledgling error: model stream failed. boom]"
+          }
+        }
+      }
+    ]);
+    expect(await loadStoredEvents(sessionFile)).toEqual([
+      expect.objectContaining({ type: "session.created" }),
+      expect.objectContaining({ type: "message.user", text: "hi" }),
+      expect.objectContaining({ type: "message.assistant", text: "partial" }),
+      expect.objectContaining({
+        type: "session.error",
+        kind: "model_stream_failed",
+        phase: "model_stream",
+        message: "boom",
+        assistantTextPersisted: true
+      })
+    ]);
+  });
+
+  it("does not persist an empty assistant message when streams fail before text", async () => {
+    const { agent, sessionId, streamText, sessionFile, sessionUpdates } = await createTestAgent();
+    streamText.mockReturnValueOnce(createFailingStream([], new Error("stream failed")));
+
+    await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] })).rejects.toThrow(
+      "Fledgling model stream failed: stream failed"
+    );
+
+    expect(sessionUpdates).toEqual([
+      {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "\n\n[Fledgling error: model stream failed. stream failed]"
+          }
+        }
+      }
+    ]);
+    expect(await loadStoredEventTypes(sessionFile)).toEqual(["session.created", "message.user", "session.error"]);
+    expect((await loadStoredEvents(sessionFile))[2]).toEqual(
+      expect.objectContaining({
+        type: "session.error",
+        kind: "model_stream_failed",
+        assistantTextPersisted: false
+      })
+    );
+  });
+
+  it("rejects unknown sessions with a stable sanitized error and no log write", async () => {
+    const { agent, sessionFile } = await createTestAgent();
+
+    await expect(agent.prompt({ sessionId: "missing", prompt: [{ type: "text", text: "hi" }] })).rejects.toThrow(
+      "Unknown ACP session: missing"
+    );
+
+    expect(await loadStoredEventTypes(sessionFile)).toEqual(["session.created"]);
+  });
+
+  it("runs later prompts after a normalized model failure", async () => {
+    const { agent, sessionId, streamText, sessionFile } = await createTestAgent();
+    streamText
+      .mockImplementationOnce(() => {
+        throw new Error("start failed");
+      })
+      .mockReturnValueOnce(createImmediateStream([{ type: "text-delta", text: "second" }]));
+
+    await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "one" }] })).rejects.toThrow(
+      "Fledgling model start failed: start failed"
+    );
+    await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "two" }] })).resolves.toEqual({
+      stopReason: "end_turn"
+    });
+
+    expect(await loadStoredMessages(sessionFile)).toEqual([
+      ["message.user", "one"],
+      ["message.user", "two"],
+      ["message.assistant", "second"]
+    ]);
+  });
+
   it("queues overlapping prompts for the same session", async () => {
     const { agent, sessionId, streamText, sessionFile } = await createTestAgent();
     const firstStream = createControlledStream([{ type: "text-delta", text: "first" }]);
@@ -333,6 +473,18 @@ function createImmediateStream(parts: readonly StreamPart[]): { readonly fullStr
   return {
     fullStream: (async function* () {
       yield* parts;
+    })()
+  };
+}
+
+function createFailingStream(
+  parts: readonly StreamPart[],
+  error: unknown
+): { readonly fullStream: AsyncIterable<StreamPart> } {
+  return {
+    fullStream: (async function* () {
+      yield* parts;
+      throw error;
     })()
   };
 }
