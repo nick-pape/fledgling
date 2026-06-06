@@ -58,9 +58,20 @@ export class LocalStorageSessionManager implements ISessionManager {
 }
 
 function createId(): string {
-  if (typeof globalThis.crypto.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
+  const crypto = globalThis.crypto;
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
   }
 
-  return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  if (typeof crypto.getRandomValues === "function") {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] % 16) + 64;
+    bytes[8] = (bytes[8] % 64) + 128;
+    const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex
+      .slice(8, 10)
+      .join("")}-${hex.slice(10, 16).join("")}`;
+  }
+
+  throw new Error("Web Crypto is required to create ACP session IDs");
 }
