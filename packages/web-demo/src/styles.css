@@ -16,7 +16,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -69,6 +70,22 @@ h1 {
   background: #eef5f1;
   color: #244339;
   font-size: 12px;
+}
+
+.model-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+select {
+  min-height: 34px;
+  border: 1px solid #b9c4c0;
+  border-radius: 8px;
+  padding: 0 8px;
+  background: #ffffff;
+  color: #1f2a2e;
 }
 
 .messages {

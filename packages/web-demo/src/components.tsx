@@ -2,6 +2,7 @@ import type { WorkspaceEntry } from "@fledgling/web-agent";
 import Editor from "@monaco-editor/react";
 import type { FormEvent, ReactElement } from "react";
 import { Tree, type NodeApi, type NodeRendererProps } from "react-arborist";
+import type { DemoModelProvider, ModelLoadStatus } from "./model-runner.js";
 
 export type DemoMessage =
   | TextDemoMessage
@@ -23,6 +24,9 @@ export interface TextDemoMessage {
 export interface RuntimeDetails {
   readonly endpoint: string;
   readonly model: string;
+  readonly provider: DemoModelProvider;
+  readonly modelStatus: ModelLoadStatus;
+  readonly webGpuAvailable: boolean;
   readonly protocolVersion: string | undefined;
   readonly sessionId: string | undefined;
 }
@@ -43,6 +47,7 @@ export interface DemoViewProps {
   readonly runtime: RuntimeDetails;
   readonly status: string;
   readonly onCancel: () => void;
+  readonly onModelProviderChange: (provider: DemoModelProvider) => void;
   readonly onOpenFile: (path: string) => void;
   readonly onRefreshFiles: () => void;
   readonly onNewSession: () => void;
@@ -54,12 +59,18 @@ export function DemoView(props: DemoViewProps): ReactElement {
   return (
     <main className="app-shell">
       <section className="conversation" aria-label="Conversation">
-        <Header model={props.runtime.model} status={props.status} />
+        <Header
+          model={props.runtime.model}
+          provider={props.runtime.provider}
+          status={props.status}
+          webGpuAvailable={props.runtime.webGpuAvailable}
+          onModelProviderChange={props.onModelProviderChange}
+        />
         <Transcript assistantDraft={props.assistantDraft} messages={props.messages} />
         <Composer
           pending={props.pending}
           prompt={props.prompt}
-          ready={props.runtime.sessionId !== undefined}
+          ready={props.runtime.sessionId !== undefined && props.runtime.modelStatus.ready}
           onCancel={props.onCancel}
           onPromptChange={props.onPromptChange}
           onSubmit={props.onSubmit}
@@ -73,14 +84,38 @@ export function DemoView(props: DemoViewProps): ReactElement {
   );
 }
 
-export function Header({ model, status }: { readonly model: string; readonly status: string }): ReactElement {
+export function Header({
+  model,
+  provider,
+  status,
+  webGpuAvailable,
+  onModelProviderChange
+}: {
+  readonly model: string;
+  readonly provider: DemoModelProvider;
+  readonly status: string;
+  readonly webGpuAvailable: boolean;
+  readonly onModelProviderChange: (provider: DemoModelProvider) => void;
+}): ReactElement {
   return (
     <header className="topbar">
       <div>
         <h1>Fledgling</h1>
         <p>{status}</p>
       </div>
-      <div className="model-pill">{model}</div>
+      <div className="model-controls">
+        <select
+          value={provider}
+          aria-label="Model provider"
+          onChange={(event) => onModelProviderChange(event.target.value as DemoModelProvider)}
+        >
+          <option value="openai">Remote OpenAI</option>
+          <option value="webllm-qwen" disabled={!webGpuAvailable}>
+            Local Qwen
+          </option>
+        </select>
+        <div className="model-pill">{model}</div>
+      </div>
     </header>
   );
 }
@@ -197,6 +232,12 @@ export function RuntimePanel({
     <section className="runtime-panel" aria-label="Runtime">
       <dl>
         <RuntimeFact label="Endpoint" value={runtime.endpoint} />
+        <RuntimeFact label="Provider" value={runtime.provider === "openai" ? "Remote OpenAI" : "Local Qwen"} />
+        <RuntimeFact label="Device" value={formatDevice(runtime)} />
+        <RuntimeFact
+          label="Model status"
+          value={runtime.webGpuAvailable ? formatModelStatus(runtime.modelStatus) : "WebGPU unavailable"}
+        />
         <RuntimeFact label="Session" value={runtime.sessionId ?? "pending"} />
         <RuntimeFact label="Protocol" value={runtime.protocolVersion ?? "pending"} />
       </dl>
@@ -205,6 +246,30 @@ export function RuntimePanel({
       </button>
     </section>
   );
+}
+
+function formatDevice(runtime: RuntimeDetails): string {
+  if (runtime.provider === "openai") {
+    return "CPU";
+  }
+
+  if (!runtime.webGpuAvailable) {
+    return "GPU unavailable";
+  }
+
+  return runtime.modelStatus.device ?? (runtime.modelStatus.ready ? "GPU" : "GPU loading");
+}
+
+function formatModelStatus(status: ModelLoadStatus): string {
+  if (status.error) {
+    return status.error;
+  }
+
+  if (status.progress !== undefined && !status.ready) {
+    return `${Math.round(status.progress * 100)}% ${status.text ?? ""}`.trim();
+  }
+
+  return status.text ?? (status.ready ? "Ready" : "Pending");
 }
 
 export function RuntimeFact({ label, value }: { readonly label: string; readonly value: string }): ReactElement {

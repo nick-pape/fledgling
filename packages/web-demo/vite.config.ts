@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   build: {
-    chunkSizeWarningLimit: 1000,
+    chunkSizeWarningLimit: 8000,
     rollupOptions: {
       output: {
         manualChunks(id): string | undefined {
@@ -16,6 +16,15 @@ export default defineConfig({
             normalized.includes("/monaco-editor/")
           ) {
             return "editor";
+          }
+
+          if (
+            normalized.includes("@mlc-ai/web-llm") ||
+            normalized.includes("@mlc-ai/web-runtime") ||
+            normalized.includes("@mlc-ai/web-tokenizers") ||
+            normalized.includes("@mlc-ai/web-xgrammar")
+          ) {
+            return "webllm-runtime";
           }
 
           if (

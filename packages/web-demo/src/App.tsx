@@ -4,10 +4,32 @@ import { type FormEvent, type ReactElement, useEffect, useMemo, useRef, useState
 
 import { createDemoSession, createDemoWorkspace, type DemoSession } from "./acp-demo.js";
 import { DemoView, type DemoMessage, type WorkspaceBrowserModel } from "./components.js";
-import { BrowserOpenAiModelTurnRunner } from "./model-runner.js";
+import {
+  createModelTurnRunner,
+  type BrowserModelTurnRunner,
+  type DemoModelProvider,
+  type ModelLoadStatus
+} from "./model-runner.js";
 
 export function App(): ReactElement {
-  const modelRunner = useMemo(() => new BrowserOpenAiModelTurnRunner(import.meta.env), []);
+  const webGpuAvailable = useMemo(() => "gpu" in navigator, []);
+  const [provider, setProvider] = useState<DemoModelProvider>("openai");
+  const [modelStatus, setModelStatus] = useState<ModelLoadStatus>({
+    provider: "openai",
+    ready: true,
+    text: "Remote endpoint",
+    device: "CPU"
+  });
+  const modelRunner = useMemo(
+    () =>
+      createModelTurnRunner({
+        provider,
+        envSource: import.meta.env,
+        onStatusChange: setModelStatus
+      }),
+    [provider]
+  );
+  const modelRunnerRef = useRef<BrowserModelTurnRunner>(modelRunner);
   const workspaceRuntimeRef = useRef<IWorkspaceRuntime | undefined>(undefined);
   const selectedPathRef = useRef<string | undefined>(undefined);
   const [workspaceRuntime, setWorkspaceRuntime] = useState<IWorkspaceRuntime | undefined>();
@@ -27,6 +49,24 @@ export function App(): ReactElement {
   useEffect(() => {
     selectedPathRef.current = browser.selectedPath;
   }, [browser.selectedPath]);
+
+  useEffect(() => {
+    modelRunnerRef.current = modelRunner;
+    setModelStatus(modelRunner.status);
+    if (workspaceRuntimeRef.current) {
+      void startSession(workspaceRuntimeRef.current);
+    }
+
+    if (modelRunner.warmup) {
+      void modelRunner.warmup().catch((error) => {
+        setMessages((current) => [...current, { role: "error", text: errorText(error) }]);
+      });
+    }
+
+    return () => {
+      void modelRunner.dispose?.();
+    };
+  }, [modelRunner]);
 
   useEffect(() => {
     let disposed = false;
@@ -56,7 +96,7 @@ export function App(): ReactElement {
 
   async function startSession(runtime: IWorkspaceRuntime): Promise<void> {
     setStatus("Starting");
-    setSession(await createDemoSession(modelRunner, runtime, handleSessionUpdate));
+    setSession(await createDemoSession(modelRunnerRef.current, runtime, handleSessionUpdate));
     setStatus("Ready");
   }
 
@@ -96,7 +136,7 @@ export function App(): ReactElement {
   async function sendPrompt(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const text = prompt.trim();
-    if (!text || pending || !session) {
+    if (!text || pending || !session || !modelRunner.ready) {
       return;
     }
 
@@ -145,6 +185,21 @@ export function App(): ReactElement {
     setMessages([]);
     setAssistantDraft("");
     await startSession(workspaceRuntime);
+  }
+
+  async function changeProvider(nextProvider: DemoModelProvider): Promise<void> {
+    if (nextProvider === provider) {
+      return;
+    }
+
+    if (session) {
+      await session.connection.cancel({ sessionId: session.sessionId });
+    }
+
+    setMessages([]);
+    setAssistantDraft("");
+    setPending(false);
+    setProvider(nextProvider);
   }
 
   async function refreshFileBrowser(
@@ -218,11 +273,15 @@ export function App(): ReactElement {
       runtime={{
         endpoint: modelRunner.endpoint,
         model: modelRunner.model,
+        provider,
+        modelStatus,
+        webGpuAvailable,
         protocolVersion: session?.protocolVersion,
         sessionId: session?.sessionId
       }}
       status={status}
       onCancel={() => void cancelPrompt()}
+      onModelProviderChange={(nextProvider) => void changeProvider(nextProvider)}
       onOpenFile={(path) => void openWorkspaceFile(path)}
       onRefreshFiles={() => void refreshFileBrowser()}
       onNewSession={() => void newSession()}
@@ -307,11 +366,28 @@ function formatJson(value: unknown): string | undefined {
     return undefined;
   }
 
-  return JSON.stringify(value, undefined, 2);
+  const text = safeStringify(value);
+  return text === undefined ? undefined : text;
 }
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return safeStringify(error) ?? String(error);
+}
+
+function safeStringify(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value, undefined, 2);
+  } catch {
+    return undefined;
+  }
 }
 
 function contentBlockText(content: unknown): string | undefined {
