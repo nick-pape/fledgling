@@ -51,6 +51,10 @@
       "projectFolder": "packages/web-agent"
     },
     {
+      "packageName": "@fledgling/web-demo",
+      "projectFolder": "packages/web-demo"
+    },
+    {
       "packageName": "@fledgling/mcp-workspace-webcontainer",
       "projectFolder": "packages/mcp-workspace-webcontainer"
     },

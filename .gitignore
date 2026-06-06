@@ -11,4 +11,6 @@ temp/
 .heft/
 *.tsbuildinfo
 .env
+.env.local
+.env.*.local
 .fledgling/
