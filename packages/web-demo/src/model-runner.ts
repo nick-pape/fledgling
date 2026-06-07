@@ -503,8 +503,17 @@ async function readManualToolResponse(
         continue;
       }
 
-      if (trimmed.startsWith("<tool_call")) {
+      const protocolPrefix = stripLeadingCodeFencePrefix(trimmed);
+      if (protocolPrefix === undefined) {
+        continue;
+      }
+
+      if (protocolPrefix.startsWith("<tool_call")) {
         mode = "tool";
+        continue;
+      }
+
+      if (isPossibleToolCallPrefix(protocolPrefix)) {
         continue;
       }
 
@@ -532,12 +541,36 @@ You are provided with function signatures inside <tools></tools> XML tags.
 ${JSON.stringify(tools, undefined, 2)}
 </tools>
 
-For each function call, return a JSON object with function name and arguments within <tool_call></tool_call> XML tags:
+Use tools only when the user asks you to inspect, modify, search, list, or run something in the workspace. Do not use workspace.write_file for ordinary writing or composition requests unless the user explicitly asks you to save content to a file.
+
+When a tool is needed, return a JSON object with function name and arguments within <tool_call></tool_call> XML tags:
 <tool_call>
 {"name": <function-name>, "arguments": <args-json-object>}
 </tool_call>
 
 The arguments field must be an object. You may call multiple tools by returning multiple <tool_call> blocks. If no tool is needed, answer normally.`;
+}
+
+function isPossibleToolCallPrefix(trimmed: string): boolean {
+  const target = "<tool_call";
+  return target.startsWith(trimmed.toLowerCase());
+}
+
+function stripLeadingCodeFencePrefix(trimmed: string): string | undefined {
+  if (!"`".repeat(3).startsWith(trimmed) && !trimmed.startsWith("```")) {
+    return trimmed.toLowerCase();
+  }
+
+  if (!trimmed.startsWith("```")) {
+    return undefined;
+  }
+
+  const newlineIndex = trimmed.indexOf("\n");
+  if (newlineIndex === -1) {
+    return undefined;
+  }
+
+  return trimmed.slice(newlineIndex + 1).trimStart().toLowerCase();
 }
 
 function parseQwenToolCalls(raw: string): QwenToolCall[] {
