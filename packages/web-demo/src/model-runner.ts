@@ -183,7 +183,6 @@ export class BrowserWebLlmModelTurnRunner implements BrowserModelTurnRunner {
         }
       });
 
-      let bufferedText = "";
       let toolCalls: WebLlmToolCall[] = [];
       for await (const chunk of stream) {
         if (request.abortSignal.aborted) {
@@ -194,7 +193,7 @@ export class BrowserWebLlmModelTurnRunner implements BrowserModelTurnRunner {
         const choice = chunk.choices[0];
         const content = choice?.delta.content;
         if (content) {
-          bufferedText += content;
+          yield { type: "text-delta", text: content };
         }
 
         const deltaToolCalls = choice?.delta.tool_calls;
@@ -204,10 +203,6 @@ export class BrowserWebLlmModelTurnRunner implements BrowserModelTurnRunner {
       }
 
       if (toolCalls.length === 0) {
-        if (bufferedText) {
-          yield { type: "text-delta", text: bufferedText };
-        }
-
         return;
       }
 
@@ -365,20 +360,21 @@ export class BrowserWebLlmModelTurnRunner implements BrowserModelTurnRunner {
         }
       });
 
-      const response = await readManualToolResponse(stream, request.abortSignal, engine, (text) => {
-        if (text) {
-          return { type: "text-delta", text };
+      let response: ManualToolResponse | undefined;
+      for await (const part of readManualToolResponse(stream, request.abortSignal, engine)) {
+        if (part.type === "manual-response") {
+          response = part;
+        } else {
+          yield part;
         }
-
-        return undefined;
-      });
-      for (const part of response.textParts) {
-        yield part;
+      }
+      if (!response) {
+        return;
       }
 
       const toolCalls = parseQwenToolCalls(response.raw);
       if (toolCalls.length === 0) {
-        const text = response.textParts.length > 0 ? "" : stripThinking(response.raw).trim();
+        const text = response.streamedText ? "" : stripThinking(response.raw).trim();
         if (text) {
           yield { type: "text-delta", text };
         }
@@ -474,21 +470,21 @@ function toWebLlmTools(tools: ToolSet): WebLlmTool[] {
   });
 }
 
-async function readManualToolResponse(
+async function* readManualToolResponse(
   stream: AsyncIterable<WebLlmChatChunk>,
   abortSignal: AbortSignal,
-  engine: WebLlmEngine,
-  toTextPart: (text: string) => ModelStreamPart | undefined
-): Promise<{ readonly raw: string; readonly textParts: readonly ModelStreamPart[] }> {
+  engine: WebLlmEngine
+): AsyncIterable<ModelStreamPart | ManualToolResponse> {
   let raw = "";
   let streamedLength = 0;
   let mode: "undecided" | "final" | "tool" = "undecided";
-  const textParts: ModelStreamPart[] = [];
+  let streamedText = false;
 
   for await (const chunk of stream) {
     if (abortSignal.aborted) {
       engine.interruptGenerate();
-      return { raw, textParts };
+      yield { type: "manual-response", raw, streamedText };
+      return;
     }
 
     raw += chunk.choices[0]?.delta.content ?? "";
@@ -523,14 +519,14 @@ async function readManualToolResponse(
     if (mode === "final" && visible.length > streamedLength) {
       const text = visible.slice(streamedLength);
       streamedLength = visible.length;
-      const part = toTextPart(text);
-      if (part) {
-        textParts.push(part);
+      if (text) {
+        streamedText = true;
+        yield { type: "text-delta", text };
       }
     }
   }
 
-  return { raw, textParts };
+  yield { type: "manual-response", raw, streamedText };
 }
 
 function manualToolSystemPrompt(tools: readonly WebLlmTool[]): string {
@@ -774,6 +770,12 @@ interface WebLlmChatRequest {
 interface QwenToolCall {
   readonly name: string;
   readonly arguments: unknown;
+}
+
+interface ManualToolResponse {
+  readonly type: "manual-response";
+  readonly raw: string;
+  readonly streamedText: boolean;
 }
 
 type WebLlmMessage =
