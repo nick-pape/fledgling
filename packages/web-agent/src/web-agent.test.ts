@@ -1,7 +1,7 @@
 import type { IModelTurnRunner, ModelTurnRequest } from "@fledgling/agent-core";
 import { describe, expect, it, vi } from "vitest";
 
-import type { IWorkspaceRuntime } from "@fledgling/mcp-workspace-webcontainer";
+import type { IWorkspaceRuntime } from "@fledgling/mcp-workspace-browser";
 
 import { createWebAgent } from "./index.js";
 

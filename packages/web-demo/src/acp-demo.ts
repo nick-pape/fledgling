@@ -1,6 +1,8 @@
 import * as acp from "@agentclientprotocol/sdk";
 import type { IModelTurnRunner, IWorkspaceRuntime } from "@fledgling/web-agent";
 
+export type DemoWorkspaceProvider = "nodepod" | "webcontainer";
+
 export interface DemoSession {
   readonly connection: acp.ClientSideConnection;
   readonly protocolVersion: string;
@@ -66,10 +68,42 @@ export async function createDemoSession(
   };
 }
 
-export async function createDemoWorkspace(): Promise<IWorkspaceRuntime> {
+export async function createDemoWorkspace(provider: DemoWorkspaceProvider): Promise<IWorkspaceRuntime> {
+  if (provider === "webcontainer") {
+    return createWebContainerDemoWorkspace();
+  }
+
+  return createNodepodDemoWorkspace();
+}
+
+async function createNodepodDemoWorkspace(): Promise<IWorkspaceRuntime> {
+  const { createNodepodWorkspaceRuntime } = await import("@fledgling/workspace-nodepod");
+  return createNodepodWorkspaceRuntime({
+    files: {
+      "/README.md":
+        "# Fledgling browser workspace\n\nThis workspace is backed by NodePod. Try asking the agent to list files, write notes.txt, run pwd, or write and execute a Node script.\n",
+      "/package.json": JSON.stringify(
+        {
+          name: "fledgling-browser-workspace",
+          private: true,
+          type: "module",
+          scripts: {
+            hello: "node index.js"
+          }
+        },
+        undefined,
+        2
+      ),
+      "/index.js": "console.log('hello from NodePod');\n"
+    },
+    workdir: "/"
+  });
+}
+
+async function createWebContainerDemoWorkspace(): Promise<IWorkspaceRuntime> {
   const [{ WebContainer }, { WebContainerWorkspaceRuntime }] = await Promise.all([
     import("@webcontainer/api"),
-    import("@fledgling/web-agent")
+    import("@fledgling/mcp-workspace-webcontainer")
   ]);
   const container = await WebContainer.boot();
   await container.mount({

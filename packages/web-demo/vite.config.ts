@@ -1,6 +1,15 @@
 import { defineConfig } from "vite";
+import nodepod from "@scelar/nodepod/vite";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
+  plugins: [nodepod()],
+  resolve: {
+    alias: {
+      "node:module": fileURLToPath(new URL("./src/node-module-shim.ts", import.meta.url)),
+      "node:process": fileURLToPath(new URL("./src/node-process-shim.ts", import.meta.url))
+    }
+  },
   build: {
     chunkSizeWarningLimit: 8000,
     rollupOptions: {
@@ -27,18 +36,25 @@ export default defineConfig({
             return "webllm-runtime";
           }
 
+          if (normalized.includes("@scelar/nodepod")) {
+            return "nodepod-runtime";
+          }
+
           if (
             normalized.includes("@agentclientprotocol/sdk") ||
             normalized.includes("@ai-sdk/mcp") ||
             normalized.includes("@fledgling/") ||
             normalized.includes("@modelcontextprotocol/sdk") ||
-            normalized.includes("@webcontainer/api") ||
             normalized.includes("/ajv") ||
             normalized.includes("/ajv-formats") ||
             normalized.includes("/fast-uri") ||
             normalized.includes("/zod")
           ) {
             return "webagent-runtime";
+          }
+
+          if (normalized.includes("@webcontainer/api")) {
+            return "webcontainer-runtime";
           }
 
           return undefined;
@@ -50,7 +66,7 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     headers: {
-      "Cross-Origin-Embedder-Policy": "require-corp",
+      "Cross-Origin-Embedder-Policy": "credentialless",
       "Cross-Origin-Opener-Policy": "same-origin"
     },
     port: 5173,
@@ -58,7 +74,7 @@ export default defineConfig({
   },
   preview: {
     headers: {
-      "Cross-Origin-Embedder-Policy": "require-corp",
+      "Cross-Origin-Embedder-Policy": "credentialless",
       "Cross-Origin-Opener-Policy": "same-origin"
     }
   }

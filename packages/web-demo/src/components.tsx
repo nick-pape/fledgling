@@ -2,6 +2,8 @@ import type { WorkspaceEntry } from "@fledgling/web-agent";
 import Editor from "@monaco-editor/react";
 import type { FormEvent, ReactElement } from "react";
 import { Tree, type NodeApi, type NodeRendererProps } from "react-arborist";
+
+import type { DemoWorkspaceProvider } from "./acp-demo.js";
 import type { DemoModelProvider, ModelLoadStatus } from "./model-runner.js";
 
 export type DemoMessage =
@@ -25,6 +27,7 @@ export interface RuntimeDetails {
   readonly endpoint: string;
   readonly model: string;
   readonly provider: DemoModelProvider;
+  readonly workspaceProvider: DemoWorkspaceProvider;
   readonly modelStatus: ModelLoadStatus;
   readonly webGpuAvailable: boolean;
   readonly protocolVersion: string | undefined;
@@ -48,6 +51,7 @@ export interface DemoViewProps {
   readonly status: string;
   readonly onCancel: () => void;
   readonly onModelProviderChange: (provider: DemoModelProvider) => void;
+  readonly onWorkspaceProviderChange: (provider: DemoWorkspaceProvider) => void;
   readonly onOpenFile: (path: string) => void;
   readonly onRefreshFiles: () => void;
   readonly onNewSession: () => void;
@@ -63,8 +67,10 @@ export function DemoView(props: DemoViewProps): ReactElement {
           model={props.runtime.model}
           provider={props.runtime.provider}
           status={props.status}
+          workspaceProvider={props.runtime.workspaceProvider}
           webGpuAvailable={props.runtime.webGpuAvailable}
           onModelProviderChange={props.onModelProviderChange}
+          onWorkspaceProviderChange={props.onWorkspaceProviderChange}
         />
         <Transcript assistantDraft={props.assistantDraft} messages={props.messages} />
         <Composer
@@ -88,14 +94,18 @@ export function Header({
   model,
   provider,
   status,
+  workspaceProvider,
   webGpuAvailable,
-  onModelProviderChange
+  onModelProviderChange,
+  onWorkspaceProviderChange
 }: {
   readonly model: string;
   readonly provider: DemoModelProvider;
   readonly status: string;
+  readonly workspaceProvider: DemoWorkspaceProvider;
   readonly webGpuAvailable: boolean;
   readonly onModelProviderChange: (provider: DemoModelProvider) => void;
+  readonly onWorkspaceProviderChange: (provider: DemoWorkspaceProvider) => void;
 }): ReactElement {
   return (
     <header className="topbar">
@@ -113,6 +123,14 @@ export function Header({
           <option value="webllm-qwen" disabled={!webGpuAvailable}>
             Local Qwen
           </option>
+        </select>
+        <select
+          value={workspaceProvider}
+          aria-label="Workspace runtime"
+          onChange={(event) => onWorkspaceProviderChange(event.target.value as DemoWorkspaceProvider)}
+        >
+          <option value="nodepod">NodePod</option>
+          <option value="webcontainer">WebContainer</option>
         </select>
         <div className="model-pill">{model}</div>
       </div>
@@ -233,6 +251,7 @@ export function RuntimePanel({
       <dl>
         <RuntimeFact label="Endpoint" value={runtime.endpoint} />
         <RuntimeFact label="Provider" value={runtime.provider === "openai" ? "Remote OpenAI" : "Local Qwen"} />
+        <RuntimeFact label="Workspace" value={formatWorkspaceProvider(runtime.workspaceProvider)} />
         <RuntimeFact label="Device" value={formatDevice(runtime)} />
         <RuntimeFact
           label="Model status"
@@ -246,6 +265,10 @@ export function RuntimePanel({
       </button>
     </section>
   );
+}
+
+function formatWorkspaceProvider(provider: DemoWorkspaceProvider): string {
+  return provider === "nodepod" ? "NodePod" : "WebContainer";
 }
 
 function formatDevice(runtime: RuntimeDetails): string {

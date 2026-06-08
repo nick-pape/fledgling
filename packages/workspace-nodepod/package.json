@@ -1,8 +1,8 @@
 {
-  "name": "@fledgling/mcp-workspace-webcontainer",
+  "name": "@fledgling/workspace-nodepod",
   "version": "0.0.0",
   "private": true,
-  "description": "Browser MCP workspace sidecar backed by WebContainer-compatible runtimes.",
+  "description": "NodePod-backed browser workspace runtime for Fledgling.",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -15,9 +15,7 @@
   },
   "dependencies": {
     "@fledgling/mcp-workspace-browser": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.21.0",
-    "@webcontainer/api": "^1.5.1",
-    "zod": "^3.25.0"
+    "@scelar/nodepod": "1.7.4"
   },
   "devDependencies": {
     "@fledgling/heft-rig": "workspace:*",

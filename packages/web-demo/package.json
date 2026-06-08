@@ -14,7 +14,9 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.4.3",
     "@ai-sdk/openai": "^2.0.0",
+    "@fledgling/mcp-workspace-webcontainer": "workspace:*",
     "@fledgling/web-agent": "workspace:*",
+    "@fledgling/workspace-nodepod": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
     "@mlc-ai/web-llm": "^0.2.79",
     "@webcontainer/api": "^1.5.1",
@@ -22,7 +24,8 @@
     "monaco-editor": "^0.55.1",
     "react-arborist": "^3.4.3",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "@scelar/nodepod": "1.7.4"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",

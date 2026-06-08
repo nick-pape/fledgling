@@ -2,7 +2,12 @@ import type * as acp from "@agentclientprotocol/sdk";
 import type { IWorkspaceRuntime, WorkspaceEntry } from "@fledgling/web-agent";
 import { type FormEvent, type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 
-import { createDemoSession, createDemoWorkspace, type DemoSession } from "./acp-demo.js";
+import {
+  createDemoSession,
+  createDemoWorkspace,
+  type DemoSession,
+  type DemoWorkspaceProvider
+} from "./acp-demo.js";
 import { DemoView, type DemoMessage, type WorkspaceBrowserModel } from "./components.js";
 import {
   createModelTurnRunner,
@@ -14,6 +19,7 @@ import {
 export function App(): ReactElement {
   const webGpuAvailable = useMemo(() => "gpu" in navigator, []);
   const [provider, setProvider] = useState<DemoModelProvider>("openai");
+  const [workspaceProvider, setWorkspaceProvider] = useState<DemoWorkspaceProvider>("nodepod");
   const [modelStatus, setModelStatus] = useState<ModelLoadStatus>({
     provider: "openai",
     ready: true,
@@ -73,8 +79,9 @@ export function App(): ReactElement {
     async function boot(): Promise<void> {
       try {
         setStatus("Starting workspace");
-        const runtime = await createDemoWorkspace();
+        const runtime = await createDemoWorkspace(workspaceProvider);
         if (disposed) {
+          await runtime.dispose?.();
           return;
         }
 
@@ -92,7 +99,7 @@ export function App(): ReactElement {
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [workspaceProvider]);
 
   async function startSession(runtime: IWorkspaceRuntime): Promise<void> {
     setStatus("Starting");
@@ -202,6 +209,33 @@ export function App(): ReactElement {
     setProvider(nextProvider);
   }
 
+  async function changeWorkspaceProvider(nextProvider: DemoWorkspaceProvider): Promise<void> {
+    if (nextProvider === workspaceProvider) {
+      return;
+    }
+
+    if (session) {
+      await session.connection.cancel({ sessionId: session.sessionId });
+    }
+
+    await workspaceRuntimeRef.current?.dispose?.();
+    workspaceRuntimeRef.current = undefined;
+    selectedPathRef.current = undefined;
+    setWorkspaceRuntime(undefined);
+    setSession(undefined);
+    setMessages([]);
+    setAssistantDraft("");
+    setPending(false);
+    setBrowser({
+      entries: [],
+      selectedPath: undefined,
+      preview: "",
+      error: undefined
+    });
+    setStatus("Starting workspace");
+    setWorkspaceProvider(nextProvider);
+  }
+
   async function refreshFileBrowser(
     runtime = workspaceRuntimeRef.current ?? workspaceRuntime,
     selectedPath = selectedPathRef.current
@@ -274,6 +308,7 @@ export function App(): ReactElement {
         endpoint: modelRunner.endpoint,
         model: modelRunner.model,
         provider,
+        workspaceProvider,
         modelStatus,
         webGpuAvailable,
         protocolVersion: session?.protocolVersion,
@@ -282,6 +317,7 @@ export function App(): ReactElement {
       status={status}
       onCancel={() => void cancelPrompt()}
       onModelProviderChange={(nextProvider) => void changeProvider(nextProvider)}
+      onWorkspaceProviderChange={(nextProvider) => void changeWorkspaceProvider(nextProvider)}
       onOpenFile={(path) => void openWorkspaceFile(path)}
       onRefreshFiles={() => void refreshFileBrowser()}
       onNewSession={() => void newSession()}
@@ -301,11 +337,19 @@ async function collectWorkspaceEntries(
   for (const entry of entries.sort((left, right) => compareEntries(left, right))) {
     result.push(entry);
     if (entry.type === "directory") {
+      if (shouldSkipDirectory(entry.name)) {
+        continue;
+      }
+
       result.push(...(await collectWorkspaceEntries(runtime, entry.path)));
     }
   }
 
   return result;
+}
+
+function shouldSkipDirectory(name: string): boolean {
+  return name === "node_modules" || name === ".git" || name === ".cache" || name === "dist" || name === "lib";
 }
 
 function compareEntries(

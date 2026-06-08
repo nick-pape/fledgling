@@ -5,9 +5,9 @@ import {
   FledglingAgent
 } from "@fledgling/agent-core";
 import {
-  createWebContainerWorkspaceSidecar,
+  createWebWorkspaceSidecar,
   type IWorkspaceRuntime
-} from "@fledgling/mcp-workspace-webcontainer";
+} from "@fledgling/mcp-workspace-browser";
 import { LocalStorageSessionManager } from "@fledgling/session-local-storage";
 
 import { WebMcpToolProvider } from "./tool-provider.js";
@@ -22,7 +22,7 @@ export function createWebAgentDependencies(options: WebAgentOptions): FledglingA
   return {
     sessionManager: new LocalStorageSessionManager({ storage: options.storage }),
     toolProvider: new WebMcpToolProvider({
-      createSidecar: () => createWebContainerWorkspaceSidecar(options.workspaceRuntime)
+      createSidecar: () => createWebWorkspaceSidecar(options.workspaceRuntime)
     }),
     modelTurnRunner: options.modelTurnRunner,
     logger: console

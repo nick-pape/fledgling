@@ -21,15 +21,15 @@ export interface WebWorkspaceSidecar {
   close(): Promise<void>;
 }
 
-export async function createWebContainerWorkspaceSidecar(runtime: IWorkspaceRuntime): Promise<WebWorkspaceSidecar> {
+export async function createWebWorkspaceSidecar(runtime: IWorkspaceRuntime): Promise<WebWorkspaceSidecar> {
   const server = new McpServer(
     {
-      name: "fledgling-webcontainer-workspace",
+      name: "fledgling-browser-workspace",
       version: "0.0.0"
     },
     {
       instructions:
-        "Browser workspace tools run through a WebContainer-backed MCP sidecar. Use read_file before edits; command output is latest evidence."
+        "Browser workspace tools run through a browser-hosted MCP sidecar. Use read_file before edits; command output is latest evidence."
     }
   );
   registerWebWorkspaceTools(server, runtime);
@@ -165,7 +165,7 @@ function toolResult(
 function fileContextHint(path: string, content: string): ContextHint {
   return {
     kind: "durable_resource",
-    identity: `webcontainer://${path}`,
+    identity: `browser-workspace://${path}`,
     contentHash: hashText(content),
     tokenEstimate: estimateTokens(content),
     placement: "session_context",
@@ -178,7 +178,7 @@ function fileContextHint(path: string, content: string): ContextHint {
 function commandContextHint(command: string, output: string): ContextHint {
   return {
     kind: "command_output",
-    identity: `webcontainer-command://${hashText(command)}`,
+    identity: `browser-command://${hashText(command)}`,
     contentHash: hashText(output),
     tokenEstimate: estimateTokens(output),
     placement: "latest_evidence",
