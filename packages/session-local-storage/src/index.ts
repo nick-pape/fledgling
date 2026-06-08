@@ -11,7 +11,7 @@ export class LocalStorageSessionManager implements ISessionManager {
   readonly #keyPrefix: string;
 
   public constructor(options: LocalStorageSessionManagerOptions = {}) {
-    this.#storage = options.storage ?? globalThis.localStorage;
+    this.#storage = options.storage ?? getDefaultStorage();
     this.#keyPrefix = options.keyPrefix ?? "fledgling:sessions:";
   }
 
@@ -55,6 +55,21 @@ export class LocalStorageSessionManager implements ISessionManager {
   #sessionKey(sessionId: string): string {
     return `${this.#keyPrefix}${sessionId.replaceAll(/[^A-Za-z0-9._-]/g, "_")}`;
   }
+}
+
+function getDefaultStorage(): Storage {
+  try {
+    const storage = (globalThis as { readonly localStorage?: Storage }).localStorage;
+    if (storage !== undefined) {
+      return storage;
+    }
+  } catch {
+    // Fall through to the actionable error below.
+  }
+
+  throw new Error(
+    "LocalStorageSessionManager requires browser localStorage; pass an explicit Storage implementation in restricted or non-window environments."
+  );
 }
 
 function createId(): string {

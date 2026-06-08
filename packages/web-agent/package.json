@@ -10,6 +10,8 @@
   "scripts": {
     "build": "heft build --clean",
     "_phase:build": "heft run --only build -- --clean",
+    "test": "vitest run",
+    "_phase:test": "vitest run --coverage",
     "bundle": "webpack --config webpack.config.cjs",
     "_phase:bundle": "webpack --config webpack.config.cjs"
   },

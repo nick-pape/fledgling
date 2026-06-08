@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { loadConfig } from "./config.js";
+import { NodeMcpToolProvider } from "./index.js";
 
 let tempDir: string | undefined;
 
@@ -52,6 +53,35 @@ describe("loadMcpServersFromConfig", () => {
         }
       }
     });
+  });
+
+  it("rejects ACP server names that collide after sanitization", async () => {
+    const provider = new NodeMcpToolProvider(Promise.resolve({}));
+
+    await expect(
+      provider.createSessionTools({
+        cwd: undefined,
+        mcpServers: [
+          { name: "one.two", command: "node", args: [], env: [] },
+          { name: "one_two", command: "node", args: [], env: [] }
+        ]
+      })
+    ).rejects.toThrow("MCP server name collision after sanitization: one_two");
+  });
+
+  it("rejects configured server names that collide after sanitization", async () => {
+    const provider = new NodeMcpToolProvider(
+      Promise.resolve({
+        mcpServers: {
+          "one.two": { type: "stdio", command: "node" },
+          one_two: { type: "stdio", command: "node" }
+        }
+      })
+    );
+
+    await expect(provider.createSessionTools({ cwd: undefined, mcpServers: [] })).rejects.toThrow(
+      "Configured MCP server name collision after sanitization: one_two"
+    );
   });
 });
 

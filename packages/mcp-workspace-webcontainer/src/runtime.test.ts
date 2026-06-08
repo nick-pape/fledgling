@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { WebContainerWorkspaceRuntime } from "./runtime.js";
 
@@ -72,5 +72,36 @@ describe("WebContainerWorkspaceRuntime", () => {
       { path: "src/index.ts", line: 1, text: "export const value = 'needle';" },
       { path: "README.md", line: 2, text: "needle here" }
     ]);
+  });
+
+  it("aborts commands that exceed the timeout", async () => {
+    const kill = vi.fn();
+    const runtime = new WebContainerWorkspaceRuntime({
+      fs: {
+        async readFile(): Promise<string> {
+          return "";
+        },
+        async writeFile(): Promise<void> {},
+        async readdir(): Promise<FakeDirent[]> {
+          return [];
+        }
+      },
+      async spawn(): Promise<unknown> {
+        return {
+          output: new ReadableStream<string>(),
+          exit: new Promise<number>(() => undefined),
+          kill
+        };
+      }
+    } as never);
+
+    await expect(runtime.runCommand("sleep 10", ".", 1, 1000)).resolves.toEqual({
+      exitCode: 124,
+      stdout: "",
+      stderr: "Command timed out",
+      timedOut: true,
+      truncated: false
+    });
+    expect(kill).toHaveBeenCalledOnce();
   });
 });

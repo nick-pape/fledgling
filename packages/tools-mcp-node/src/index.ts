@@ -57,6 +57,10 @@ export class NodeMcpToolProvider implements IToolProvider {
 
     for (const server of clientMcpServers) {
       const name = sanitizeToolName(server.name);
+      if (resolved.has(name)) {
+        throw new Error(`MCP server name collision after sanitization: ${name}`);
+      }
+
       resolved.set(name, {
         name,
         origin: "acp_client",
@@ -67,7 +71,8 @@ export class NodeMcpToolProvider implements IToolProvider {
     const config = await this.#configPromise;
     for (const [serverName, serverConfig] of Object.entries(config.mcpServers ?? {})) {
       const name = sanitizeToolName(serverName);
-      if (resolved.has(name)) {
+      const existing = resolved.get(name);
+      if (existing?.origin === "acp_client") {
         console.error(
           JSON.stringify({
             level: "warn",
@@ -76,6 +81,10 @@ export class NodeMcpToolProvider implements IToolProvider {
           })
         );
         continue;
+      }
+
+      if (existing) {
+        throw new Error(`Configured MCP server name collision after sanitization: ${name}`);
       }
 
       resolved.set(name, {

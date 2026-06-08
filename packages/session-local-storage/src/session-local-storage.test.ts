@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { LocalStorageSessionManager } from "./index.js";
 
@@ -57,5 +57,21 @@ describe("LocalStorageSessionManager", () => {
     const manager = new LocalStorageSessionManager({ storage: new MemoryStorage() });
 
     await expect(manager.loadEvents("missing")).rejects.toThrow("Unknown ACP session: missing");
+  });
+
+  it("throws an actionable error when default localStorage is unavailable", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    vi.stubGlobal("localStorage", undefined);
+
+    try {
+      expect(() => new LocalStorageSessionManager()).toThrow(
+        "LocalStorageSessionManager requires browser localStorage"
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      if (descriptor) {
+        Object.defineProperty(globalThis, "localStorage", descriptor);
+      }
+    }
   });
 });
