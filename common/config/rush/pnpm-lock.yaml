@@ -36,9 +36,6 @@ importers:
       '@fledgling/session-file-system':
         specifier: workspace:*
         version: link:../session-file-system
-      '@fledgling/session-log':
-        specifier: workspace:*
-        version: link:../session-log
       '@fledgling/tools-mcp-node':
         specifier: workspace:*
         version: link:../tools-mcp-node

@@ -4,6 +4,7 @@ import {
   type MCPTransport
 } from "@ai-sdk/mcp";
 import type { IToolProvider, SessionTools } from "@fledgling/agent-core";
+import type * as acp from "@agentclientprotocol/sdk";
 import type { WebWorkspaceSidecar } from "@fledgling/mcp-workspace-webcontainer";
 import type { ToolSet } from "ai";
 
@@ -33,7 +34,10 @@ export class WebMcpToolProvider implements IToolProvider {
     this.#createSidecar = options.createSidecar;
   }
 
-  public async createSessionTools(): Promise<SessionTools> {
+  public async createSessionTools(_request: {
+    readonly cwd: string | undefined;
+    readonly mcpServers: acp.McpServer[];
+  }): Promise<SessionTools> {
     const sidecar = await this.#createSidecar();
     const client = await createMCPClient({
       name: "fledgling-web-agent",

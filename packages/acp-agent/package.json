@@ -26,7 +26,6 @@
     "@fledgling/context-builder": "workspace:*",
     "@fledgling/mcp-workspace": "workspace:*",
     "@fledgling/session-file-system": "workspace:*",
-    "@fledgling/session-log": "workspace:*",
     "@fledgling/tools-mcp-node": "workspace:*",
     "ai": "^5.0.0"
   },

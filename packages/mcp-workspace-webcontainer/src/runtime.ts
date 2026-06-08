@@ -86,23 +86,38 @@ export class WebContainerWorkspaceRuntime implements IWorkspaceRuntime {
     timeoutMs: number,
     maxOutputBytes: number
   ): Promise<CommandResult> {
-    const started = new AbortController();
-    const timeout = setTimeout(() => started.abort(), timeoutMs);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const process = await this.#container.spawn("jsh", ["-c", command], {
         cwd: normalizeWorkspacePath(cwd)
       });
-      const stdout = await readProcessOutput(process.output, maxOutputBytes);
-      const exitCode = await process.exit;
+      try {
+        const stdout = await readProcessOutput(process.output, maxOutputBytes, controller.signal);
+        const exitCode = await waitForProcessExit(process.exit, controller.signal);
 
-      return {
-        exitCode,
-        stdout,
-        stderr: "",
-        timedOut: started.signal.aborted,
-        truncated: stdout.length >= maxOutputBytes
-      };
+        return {
+          exitCode,
+          stdout,
+          stderr: "",
+          timedOut: false,
+          truncated: stdout.length >= maxOutputBytes
+        };
+      } catch (error: unknown) {
+        if (!controller.signal.aborted) {
+          throw error;
+        }
+
+        killProcess(process);
+        return {
+          exitCode: 124,
+          stdout: "",
+          stderr: "Command timed out",
+          timedOut: true,
+          truncated: false
+        };
+      }
     } finally {
       clearTimeout(timeout);
     }
@@ -122,13 +137,17 @@ export class WebContainerWorkspaceRuntime implements IWorkspaceRuntime {
   }
 }
 
-async function readProcessOutput(output: ReadableStream<string>, maxOutputBytes: number): Promise<string> {
+async function readProcessOutput(
+  output: ReadableStream<string>,
+  maxOutputBytes: number,
+  abortSignal: AbortSignal
+): Promise<string> {
   let text = "";
   const reader = output.getReader();
 
   try {
     for (;;) {
-      const result = await reader.read();
+      const result = await readWithAbort(reader, abortSignal);
       if (result.done) {
         return text.slice(0, maxOutputBytes);
       }
@@ -141,6 +160,41 @@ async function readProcessOutput(output: ReadableStream<string>, maxOutputBytes:
   } finally {
     reader.releaseLock();
   }
+}
+
+function waitForProcessExit(exit: Promise<number>, abortSignal: AbortSignal): Promise<number> {
+  return raceAbort(exit, abortSignal);
+}
+
+async function readWithAbort(
+  reader: ReadableStreamDefaultReader<string>,
+  abortSignal: AbortSignal
+): Promise<ReadableStreamReadResult<string>> {
+  if (abortSignal.aborted) {
+    throw new DOMException("Command timed out", "AbortError");
+  }
+
+  return raceAbort(reader.read(), abortSignal);
+}
+
+function raceAbort<T>(promise: Promise<T>, abortSignal: AbortSignal): Promise<T> {
+  if (abortSignal.aborted) {
+    return Promise.reject(new DOMException("Command timed out", "AbortError"));
+  }
+
+  return Promise.race([
+    promise,
+    new Promise<T>((_resolve, reject) => {
+      abortSignal.addEventListener("abort", () => reject(new DOMException("Command timed out", "AbortError")), {
+        once: true
+      });
+    })
+  ]);
+}
+
+function killProcess(process: unknown): void {
+  const candidate = process as { kill?: () => void };
+  candidate.kill?.();
 }
 
 function appendSearchMatches(matches: SearchMatch[], path: string, content: string, query: string): void {
