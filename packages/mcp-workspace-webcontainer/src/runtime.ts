@@ -182,14 +182,14 @@ function raceAbort<T>(promise: Promise<T>, abortSignal: AbortSignal): Promise<T>
     return Promise.reject(new DOMException("Command timed out", "AbortError"));
   }
 
-  return Promise.race([
-    promise,
-    new Promise<T>((_resolve, reject) => {
-      abortSignal.addEventListener("abort", () => reject(new DOMException("Command timed out", "AbortError")), {
-        once: true
-      });
-    })
-  ]);
+  let removeAbortListener: () => void = () => undefined;
+  const abortPromise = new Promise<T>((_resolve, reject) => {
+    const onAbort = (): void => reject(new DOMException("Command timed out", "AbortError"));
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+    removeAbortListener = () => abortSignal.removeEventListener("abort", onAbort);
+  });
+
+  return Promise.race([promise, abortPromise]).finally(() => removeAbortListener());
 }
 
 function killProcess(process: unknown): void {

@@ -39,15 +39,23 @@ export class WebMcpToolProvider implements IToolProvider {
     readonly mcpServers: acp.McpServer[];
   }): Promise<SessionTools> {
     const sidecar = await this.#createSidecar();
-    const client = await createMCPClient({
-      name: "fledgling-web-agent",
-      transport: sidecar.clientTransport as MCPTransport
-    });
-    const tools: ToolSet = await client.tools();
+    let client: MCPClient | undefined;
 
-    return {
-      clients: [new WebMcpClientHandle(client, sidecar)],
-      tools
-    };
+    try {
+      client = await createMCPClient({
+        name: "fledgling-web-agent",
+        transport: sidecar.clientTransport as MCPTransport
+      });
+      const tools: ToolSet = await client.tools();
+
+      return {
+        clients: [new WebMcpClientHandle(client, sidecar)],
+        tools
+      };
+    } catch (error: unknown) {
+      await client?.close();
+      await sidecar.close();
+      throw error;
+    }
   }
 }

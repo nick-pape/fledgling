@@ -31,6 +31,7 @@ describe("loadMcpServersFromConfig", () => {
       JSON.stringify({
         mcpServers: {
           workspace: {
+            type: "stdio",
             command: "node",
             args: ["server.js"],
             env: {
@@ -45,6 +46,7 @@ describe("loadMcpServersFromConfig", () => {
     expect(await loadConfig()).toEqual({
       mcpServers: {
         workspace: {
+          type: "stdio",
           command: "node",
           args: ["server.js"],
           env: {

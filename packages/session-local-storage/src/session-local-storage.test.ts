@@ -74,4 +74,20 @@ describe("LocalStorageSessionManager", () => {
       }
     }
   });
+
+  it("throws an actionable error when Web Crypto is unavailable", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+    vi.stubGlobal("crypto", undefined);
+
+    try {
+      expect(() =>
+        new LocalStorageSessionManager({ storage: new MemoryStorage() }).createSessionId()
+      ).toThrow("Web Crypto is required to create ACP session IDs");
+    } finally {
+      vi.unstubAllGlobals();
+      if (descriptor) {
+        Object.defineProperty(globalThis, "crypto", descriptor);
+      }
+    }
+  });
 });

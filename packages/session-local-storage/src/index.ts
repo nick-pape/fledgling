@@ -73,7 +73,11 @@ function getDefaultStorage(): Storage {
 }
 
 function createId(): string {
-  const crypto = globalThis.crypto;
+  const crypto = (globalThis as { readonly crypto?: Crypto }).crypto;
+  if (!crypto) {
+    throw new Error("Web Crypto is required to create ACP session IDs");
+  }
+
   if (typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }

@@ -1,6 +1,11 @@
 import type { ISessionManager, SessionEventBase } from "@fledgling/agent-core";
 import type { SessionEvent } from "@fledgling/common";
 
+interface WebCryptoLike {
+  randomUUID?: () => string;
+  getRandomValues?: <T extends Uint8Array>(array: T) => T;
+}
+
 export class MemorySessionManager implements ISessionManager {
   readonly #eventsBySessionId: Map<string, SessionEvent[]> = new Map();
 
@@ -33,7 +38,11 @@ export class MemorySessionManager implements ISessionManager {
 }
 
 function createId(): string {
-  const crypto = globalThis.crypto;
+  const crypto = (globalThis as { readonly crypto?: WebCryptoLike }).crypto;
+  if (!crypto) {
+    throw new Error("Web Crypto is required to create ACP session IDs");
+  }
+
   if (typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }

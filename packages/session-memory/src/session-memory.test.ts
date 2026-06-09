@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { MemorySessionManager } from "./index.js";
 
@@ -21,5 +21,21 @@ describe("MemorySessionManager", () => {
     const manager = new MemorySessionManager();
 
     await expect(manager.loadEvents("missing")).rejects.toThrow("Unknown ACP session: missing");
+  });
+
+  it("throws an actionable error when Web Crypto is unavailable", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+    vi.stubGlobal("crypto", undefined);
+
+    try {
+      expect(() => new MemorySessionManager().createSessionId()).toThrow(
+        "Web Crypto is required to create ACP session IDs"
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      if (descriptor) {
+        Object.defineProperty(globalThis, "crypto", descriptor);
+      }
+    }
   });
 });
