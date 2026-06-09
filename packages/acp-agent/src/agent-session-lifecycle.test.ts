@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { FileSystemSessionManager } from "@fledgling/session-file-system";
+
 describe("FledglingAgent session lifecycle", () => {
   const originalConfig = process.env.FLEDGLING_CONFIG;
   const originalSessionFile = process.env.FLEDGLING_SESSION_FILE;
@@ -38,26 +40,33 @@ describe("FledglingAgent session lifecycle", () => {
     };
     const clients = [firstClient, secondClient];
 
-    vi.doMock("@ai-sdk/mcp", () => ({
-      experimental_createMCPClient: vi.fn(async () => {
-        const client = clients.shift();
-        if (!client) {
-          throw new Error("unexpected client request");
-        }
-
-        return client;
-      })
-    }));
-    vi.doMock("@ai-sdk/mcp/mcp-stdio", () => ({
-      Experimental_StdioMCPTransport: class Experimental_StdioMCPTransport {
-        public constructor(_options: unknown) {}
-      }
-    }));
-
     const { FledglingAgent } = await import("./agent.js");
-    const agent = new FledglingAgent({
-      sessionUpdate: vi.fn(async () => {})
-    } as never);
+    const agent = new FledglingAgent(
+      {
+        sessionUpdate: vi.fn(async () => {})
+      } as never,
+      {
+        sessionManager: new FileSystemSessionManager(tempDir, process.env.FLEDGLING_SESSION_FILE),
+        toolProvider: {
+          createSessionTools: vi.fn(async () => {
+            const client = clients.shift();
+            if (!client) {
+              throw new Error("unexpected client request");
+            }
+
+            return {
+              clients: [client],
+              tools: {}
+            };
+          })
+        },
+        modelTurnRunner: {
+          runModelTurn: vi.fn(() => ({
+            fullStream: (async function* () {})()
+          }))
+        }
+      }
+    );
     const mcpServers = [{ name: "workspace", command: "workspace-command", args: [], env: [] }];
 
     const session = await agent.newSession({ cwd: tempDir, mcpServers });

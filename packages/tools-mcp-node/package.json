@@ -1,32 +1,23 @@
 {
-  "name": "@fledgling/acp-agent",
+  "name": "@fledgling/tools-mcp-node",
   "version": "0.0.0",
   "private": true,
-  "description": "A minimal ACP stdio agent backed by Vercel AI SDK.",
+  "description": "Node MCP tool provider for Fledgling.",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
-  "bin": {
-    "fledgling-acp-agent": "lib/index.js"
-  },
   "scripts": {
     "build": "heft build --clean",
     "_phase:build": "heft run --only build -- --clean",
     "test": "vitest run",
-    "_phase:test": "vitest run --coverage",
-    "smoke": "node tools/smoke-client.mjs"
+    "_phase:test": "vitest run --coverage"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.4.3",
     "@ai-sdk/mcp": "0.0.18",
-    "@ai-sdk/openai": "^2.0.0",
     "@fledgling/agent-core": "workspace:*",
-    "@fledgling/common": "workspace:*",
-    "@fledgling/context-builder": "workspace:*",
     "@fledgling/mcp-workspace": "workspace:*",
-    "@fledgling/session-file-system": "workspace:*",
-    "@fledgling/tools-mcp-node": "workspace:*",
     "ai": "^5.0.0"
   },
   "devDependencies": {

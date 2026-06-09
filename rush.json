@@ -15,6 +15,10 @@
       "projectFolder": "packages/acp-agent"
     },
     {
+      "packageName": "@fledgling/agent-core",
+      "projectFolder": "packages/agent-core"
+    },
+    {
       "packageName": "@fledgling/common",
       "projectFolder": "packages/common"
     },
@@ -25,6 +29,30 @@
     {
       "packageName": "@fledgling/session-log",
       "projectFolder": "packages/session-log"
+    },
+    {
+      "packageName": "@fledgling/session-memory",
+      "projectFolder": "packages/session-memory"
+    },
+    {
+      "packageName": "@fledgling/session-local-storage",
+      "projectFolder": "packages/session-local-storage"
+    },
+    {
+      "packageName": "@fledgling/session-file-system",
+      "projectFolder": "packages/session-file-system"
+    },
+    {
+      "packageName": "@fledgling/tools-mcp-node",
+      "projectFolder": "packages/tools-mcp-node"
+    },
+    {
+      "packageName": "@fledgling/web-agent",
+      "projectFolder": "packages/web-agent"
+    },
+    {
+      "packageName": "@fledgling/mcp-workspace-webcontainer",
+      "projectFolder": "packages/mcp-workspace-webcontainer"
     },
     {
       "packageName": "@fledgling/acp-host-log",
