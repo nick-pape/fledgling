@@ -13,6 +13,21 @@ import {
 
 const SKIPPED_SEARCH_DIRECTORIES = new Set(["node_modules", ".git", ".cache", "dist", "lib", "coverage", "temp"]);
 
+interface NodepodLike {
+  readonly fs: Nodepod["fs"];
+  spawn: Nodepod["spawn"];
+  run?: (
+    command: string,
+    options?: {
+      readonly cwd?: string;
+      readonly signal?: AbortSignal;
+      readonly onStdout?: (chunk: string) => void;
+      readonly onStderr?: (chunk: string) => void;
+    }
+  ) => Promise<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }>;
+  teardown(): void;
+}
+
 export interface NodepodWorkspaceRuntimeOptions {
   readonly files?: Record<string, string | Uint8Array>;
   readonly workdir?: string;
@@ -21,9 +36,9 @@ export interface NodepodWorkspaceRuntimeOptions {
 }
 
 export class NodepodWorkspaceRuntime implements IWorkspaceRuntime {
-  readonly #nodepod: Pick<Nodepod, "fs" | "spawn" | "teardown">;
+  readonly #nodepod: NodepodLike;
 
-  public constructor(nodepod: Pick<Nodepod, "fs" | "spawn" | "teardown">) {
+  public constructor(nodepod: NodepodLike) {
     this.#nodepod = nodepod;
   }
 
@@ -84,6 +99,29 @@ export class NodepodWorkspaceRuntime implements IWorkspaceRuntime {
     let stderr = "";
 
     try {
+      if (this.#nodepod.run) {
+        const result = await this.#nodepod.run(command, {
+          cwd: normalizeAbsoluteWorkspacePath(cwd),
+          signal: abortController.signal,
+          onStdout: (chunk: string) => {
+            stdout = appendLimited(stdout, chunk, maxOutputBytes);
+          },
+          onStderr: (chunk: string) => {
+            stderr = appendLimited(stderr, chunk, maxOutputBytes);
+          }
+        });
+        stdout = stdout || result.stdout.slice(0, maxOutputBytes);
+        stderr = stderr || result.stderr.slice(0, maxOutputBytes);
+
+        return {
+          exitCode: result.exitCode,
+          stdout,
+          stderr,
+          timedOut: abortController.signal.aborted,
+          truncated: result.stdout.length > stdout.length || result.stderr.length > stderr.length
+        };
+      }
+
       const process = await this.#nodepod.spawn(command, [], {
         cwd: normalizeAbsoluteWorkspacePath(cwd),
         signal: abortController.signal

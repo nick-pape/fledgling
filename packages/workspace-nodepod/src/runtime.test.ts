@@ -60,24 +60,27 @@ describe("NodepodWorkspaceRuntime", () => {
   });
 
   it("runs commands through the NodePod shell", async () => {
-    const spawns: unknown[] = [];
+    const runs: unknown[] = [];
     const runtime = new NodepodWorkspaceRuntime({
       fs: {},
+      async run(...args: unknown[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+        runs.push(args);
+        return { stdout: "hello\n", stderr: "", exitCode: 0 };
+      },
       async spawn(...args: unknown[]): Promise<FakeProcess> {
-        spawns.push(args);
         return new FakeProcess({ stdout: "hello\n", stderr: "", exitCode: 0 });
       },
       teardown: vi.fn()
     } as never);
 
-    await expect(runtime.runCommand("pwd", ".", 1000, 20)).resolves.toEqual({
+    await expect(runtime.runCommand("node index.js | cat", ".", 1000, 20)).resolves.toEqual({
       exitCode: 0,
       stdout: "hello\n",
       stderr: "",
       timedOut: false,
       truncated: false
     });
-    expect(spawns).toHaveLength(1);
-    expect(spawns[0]).toMatchObject(["pwd", [], { cwd: "/" }]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject(["node index.js | cat", { cwd: "/" }]);
   });
 });

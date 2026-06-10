@@ -216,6 +216,11 @@ export class BrowserWebLlmModelTurnRunner implements BrowserModelTurnRunner {
       ];
 
       for (const toolCall of toolCalls) {
+        if (request.abortSignal.aborted) {
+          engine.interruptGenerate();
+          return;
+        }
+
         const toolName = toolCall.function.name;
         const input = parseToolArguments(toolCall.function.arguments);
         yield {
@@ -224,6 +229,11 @@ export class BrowserWebLlmModelTurnRunner implements BrowserModelTurnRunner {
           toolName,
           input
         };
+
+        if (request.abortSignal.aborted) {
+          engine.interruptGenerate();
+          return;
+        }
 
         try {
           const output = await executeTool(request.tools, toolName, input);
@@ -392,6 +402,11 @@ export class BrowserWebLlmModelTurnRunner implements BrowserModelTurnRunner {
 
       const toolResponses: string[] = [];
       for (const [index, toolCall] of toolCalls.entries()) {
+        if (request.abortSignal.aborted) {
+          engine.interruptGenerate();
+          return;
+        }
+
         const toolCallId = `webllm-${Date.now()}-${step}-${index}`;
         yield {
           type: "tool-call",
@@ -399,6 +414,11 @@ export class BrowserWebLlmModelTurnRunner implements BrowserModelTurnRunner {
           toolName: toolCall.name,
           input: toolCall.arguments
         };
+
+        if (request.abortSignal.aborted) {
+          engine.interruptGenerate();
+          return;
+        }
 
         try {
           const output = await executeTool(request.tools, toolCall.name, toolCall.arguments);
