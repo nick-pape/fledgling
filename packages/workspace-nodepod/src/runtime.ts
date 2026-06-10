@@ -13,45 +13,112 @@ import {
 
 const SKIPPED_SEARCH_DIRECTORIES = new Set(["node_modules", ".git", ".cache", "dist", "lib", "coverage", "temp"]);
 
-interface NodepodLike {
+/**
+ * Minimal Nodepod surface required by {@link NodepodWorkspaceRuntime}.
+ *
+ * This allows callers and tests to provide a compatible Nodepod instance
+ * without depending on the full concrete `Nodepod` class shape.
+ *
+ * @public
+ */
+export interface NodepodLike {
+  /**
+   * Filesystem API used to read, write, list, stat, and create workspace files.
+   */
   readonly fs: Nodepod["fs"];
+  /**
+   * Spawns a command in the Nodepod environment.
+   */
   spawn: Nodepod["spawn"];
+  /**
+   * Runs a shell command in the Nodepod environment when supported by the
+   * installed Nodepod version.
+   */
   run?: (
     command: string,
     options?: {
+      /**
+       * Working directory for the command.
+       */
       readonly cwd?: string;
+      /**
+       * Signal used to cancel the command.
+       */
       readonly signal?: AbortSignal;
+      /**
+       * Receives stdout chunks as the command runs.
+       */
       readonly onStdout?: (chunk: string) => void;
+      /**
+       * Receives stderr chunks as the command runs.
+       */
       readonly onStderr?: (chunk: string) => void;
     }
   ) => Promise<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }>;
+  /**
+   * Releases resources held by the Nodepod instance.
+   */
   teardown(): void;
 }
 
+/**
+ * Options used when booting a Nodepod-backed workspace runtime.
+ *
+ * @public
+ */
 export interface NodepodWorkspaceRuntimeOptions {
+  /**
+   * Initial files to populate in the workspace.
+   */
   readonly files?: Record<string, string | Uint8Array>;
+  /**
+   * Initial working directory for the Nodepod instance.
+   */
   readonly workdir?: string;
+  /**
+   * Whether Nodepod should use its service worker integration.
+   */
   readonly serviceWorker?: boolean;
+  /**
+   * Called when the Nodepod server is ready to accept browser connections.
+   */
   readonly onServerReady?: (port: number, url: string) => void;
 }
 
+/**
+ * Browser workspace runtime backed by a Nodepod instance.
+ *
+ * @public
+ */
 export class NodepodWorkspaceRuntime implements IWorkspaceRuntime {
   readonly #nodepod: NodepodLike;
 
+  /**
+   * Creates a runtime around an existing Nodepod-compatible instance.
+   */
   public constructor(nodepod: NodepodLike) {
     this.#nodepod = nodepod;
   }
 
+  /**
+   * Reads a UTF-8 file from the workspace.
+   */
   public async readFile(path: string): Promise<string> {
     return this.#nodepod.fs.readFile(normalizeAbsoluteWorkspacePath(path), "utf8");
   }
 
+  /**
+   * Writes a file to the workspace, creating parent directories as needed.
+   */
   public async writeFile(path: string, content: string): Promise<void> {
     const target = normalizeAbsoluteWorkspacePath(path);
     await this.#ensureParentDirectory(target);
     await this.#nodepod.fs.writeFile(target, content);
   }
 
+  /**
+   * Lists files and directories immediately under a workspace path.
+   */
   public async listDirectory(path: string): Promise<WorkspaceEntry[]> {
     const root = normalizeAbsoluteWorkspacePath(path);
     const entries = await this.#nodepod.fs.readdir(root);
@@ -81,12 +148,18 @@ export class NodepodWorkspaceRuntime implements IWorkspaceRuntime {
     return result;
   }
 
+  /**
+   * Searches workspace text files for a query string.
+   */
   public async searchText(query: string, path: string): Promise<readonly SearchMatch[]> {
     const matches: SearchMatch[] = [];
     await this.#searchDirectory(normalizeAbsoluteWorkspacePath(path), query, matches);
     return matches;
   }
 
+  /**
+   * Runs a command in the workspace.
+   */
   public async runCommand(
     command: string,
     cwd: string,
@@ -149,6 +222,9 @@ export class NodepodWorkspaceRuntime implements IWorkspaceRuntime {
     }
   }
 
+  /**
+   * Tears down the underlying Nodepod instance.
+   */
   public dispose(): void {
     this.#nodepod.teardown();
   }
@@ -177,6 +253,11 @@ export class NodepodWorkspaceRuntime implements IWorkspaceRuntime {
   }
 }
 
+/**
+ * Boots a Nodepod instance and wraps it in a workspace runtime.
+ *
+ * @public
+ */
 export async function createNodepodWorkspaceRuntime(
   options: NodepodWorkspaceRuntimeOptions = {}
 ): Promise<NodepodWorkspaceRuntime> {

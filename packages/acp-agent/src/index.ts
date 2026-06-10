@@ -1,3 +1,14 @@
+/**
+ * ACP stdio executable for the Fledgling agent.
+ *
+ * The package starts an Agent Client Protocol connection over standard input and
+ * output, wires it to the default Fledgling agent dependencies, and registers
+ * process lifecycle cleanup for active sessions.
+ *
+ * @packageDocumentation
+ */
+export {};
+
 import { Readable, Writable } from "node:stream";
 
 import * as acp from "@agentclientprotocol/sdk";

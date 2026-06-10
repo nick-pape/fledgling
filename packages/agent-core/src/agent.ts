@@ -29,12 +29,14 @@ interface SessionState {
   promptQueue: Promise<void>;
 }
 
+/** ACP agent implementation that manages sessions, model turns, tools, and event persistence. */
 export class FledglingAgent implements acp.Agent {
   readonly #connection: acp.AgentSideConnection;
   readonly #sessions: Map<string, SessionState> = new Map<string, SessionState>();
   readonly #dependencies: FledglingAgentDependencies;
   readonly #sessionCleanup: SessionCleanup;
 
+  /** Creates an ACP agent bound to a connection and host-provided dependencies. */
   public constructor(connection: acp.AgentSideConnection, dependencies: FledglingAgentDependencies) {
     this.#connection = connection;
     this.#dependencies = dependencies;
@@ -45,6 +47,7 @@ export class FledglingAgent implements acp.Agent {
     );
   }
 
+  /** Reports the ACP protocol version and agent capabilities. */
   public async initialize(_params: acp.InitializeRequest): Promise<acp.InitializeResponse> {
     return {
       protocolVersion: acp.PROTOCOL_VERSION,
@@ -58,6 +61,7 @@ export class FledglingAgent implements acp.Agent {
     };
   }
 
+  /** Creates a new ACP session with tools for the requested working directory and MCP servers. */
   public async newSession(params: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
     const { clients, tools } = await this.#dependencies.toolProvider.createSessionTools({
       cwd: params.cwd,
@@ -87,6 +91,7 @@ export class FledglingAgent implements acp.Agent {
     };
   }
 
+  /** Loads an existing session from persisted events and replays visible message history. */
   public async loadSession(params: acp.LoadSessionRequest): Promise<acp.LoadSessionResponse> {
     const events = await this.#dependencies.sessionManager.loadEvents(params.sessionId);
     const context = buildContext(events, { mode: "replay" });
@@ -122,14 +127,17 @@ export class FledglingAgent implements acp.Agent {
     return {};
   }
 
+  /** Handles ACP authentication requests. */
   public async authenticate(_params: acp.AuthenticateRequest): Promise<acp.AuthenticateResponse> {
     return {};
   }
 
+  /** Accepts ACP session mode updates. */
   public async setSessionMode(_params: acp.SetSessionModeRequest): Promise<acp.SetSessionModeResponse> {
     return {};
   }
 
+  /** Queues and runs a prompt against an active session. */
   public async prompt(params: acp.PromptRequest): Promise<acp.PromptResponse> {
     const session = this.#sessions.get(params.sessionId);
     if (!session) {
@@ -376,10 +384,12 @@ export class FledglingAgent implements acp.Agent {
     });
   }
 
+  /** Cancels the active prompt for the requested session, when one is running. */
   public async cancel(_params: acp.CancelNotification): Promise<void> {
     this.#sessions.get(_params.sessionId)?.pendingPrompt?.abort();
   }
 
+  /** Closes all active sessions and their backing clients. */
   public closeAllSessions(reason: string): Promise<void> {
     return this.#sessionCleanup.closeAll(reason);
   }

@@ -9,21 +9,36 @@ import {
   type WorkspaceEntry
 } from "@fledgling/mcp-workspace-browser";
 
+/**
+ * Workspace runtime adapter backed by a WebContainer instance.
+ */
 export class WebContainerWorkspaceRuntime implements IWorkspaceRuntime {
   readonly #container: WebContainer;
 
+  /**
+   * Creates a runtime that reads, writes, lists, searches, and runs commands in the provided container.
+   */
   public constructor(container: WebContainer) {
     this.#container = container;
   }
 
+  /**
+   * Reads a UTF-8 text file from the workspace.
+   */
   public async readFile(path: string): Promise<string> {
     return this.#container.fs.readFile(normalizeWorkspacePath(path), "utf8");
   }
 
+  /**
+   * Writes UTF-8 text content to a workspace file.
+   */
   public async writeFile(path: string, content: string): Promise<void> {
     await this.#container.fs.writeFile(normalizeWorkspacePath(path), content);
   }
 
+  /**
+   * Lists immediate children of a workspace directory.
+   */
   public async listDirectory(path: string): Promise<WorkspaceEntry[]> {
     const root = normalizeWorkspacePath(path);
     const entries = await this.#container.fs.readdir(root, { withFileTypes: true });
@@ -46,12 +61,18 @@ export class WebContainerWorkspaceRuntime implements IWorkspaceRuntime {
     });
   }
 
+  /**
+   * Searches workspace text files under a directory for an exact query string.
+   */
   public async searchText(query: string, path: string): Promise<readonly SearchMatch[]> {
     const matches: SearchMatch[] = [];
     await this.#searchDirectory(normalizeWorkspacePath(path), query, matches);
     return matches;
   }
 
+  /**
+   * Runs a shell command from a workspace directory.
+   */
   public async runCommand(
     command: string,
     cwd: string,

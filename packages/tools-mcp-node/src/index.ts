@@ -1,3 +1,9 @@
+/**
+ * Provides Node.js MCP tool discovery and session tool wiring for Fledgling.
+ *
+ * @packageDocumentation
+ */
+
 import { fileURLToPath } from "node:url";
 
 import * as acp from "@agentclientprotocol/sdk";
@@ -11,13 +17,29 @@ import type { ToolSet } from "ai";
 
 import { loadConfig, type FledglingConfig, type McpServerConfig, type ResolvedMcpServer } from "./config.js";
 
+export type { FledglingConfig, McpServerConfig } from "./config.js";
+
+/**
+ * Creates MCP-backed tools for Fledgling sessions running in Node.js.
+ */
 export class NodeMcpToolProvider implements IToolProvider {
   readonly #configPromise: Promise<FledglingConfig>;
 
+  /**
+   * Initializes the provider with a configuration promise.
+   *
+   * @param configPromise - Resolves to MCP server configuration loaded from the host environment.
+   */
   public constructor(configPromise: Promise<FledglingConfig> = loadConfig()) {
     this.#configPromise = configPromise;
   }
 
+  /**
+   * Resolves configured and client-provided MCP servers into tools for a session.
+   *
+   * @param request - Session context and ACP-provided MCP server declarations.
+   * @returns MCP clients and tools that should be closed when the session ends.
+   */
   public async createSessionTools(request: {
     readonly cwd: string | undefined;
     readonly mcpServers: acp.McpServer[];

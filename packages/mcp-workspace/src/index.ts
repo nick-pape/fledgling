@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 
+/**
+ * Context-aware first-party workspace MCP server for Fledgling.
+ *
+ * @packageDocumentation
+ */
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
