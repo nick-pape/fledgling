@@ -21,14 +21,18 @@ class DemoClient {
   }
 
   public async requestPermission(): Promise<acp.RequestPermissionResponse> {
+    // The demo client implements the ACP client surface, but workspace access in
+    // this app is provided by browser MCP workspace tools.
     return { outcome: { outcome: "cancelled" } };
   }
 
   public async writeTextFile(): Promise<acp.WriteTextFileResponse> {
+    // Inert ACP filesystem stub; workspace writes are provided by MCP tools.
     return {};
   }
 
   public async readTextFile(): Promise<acp.ReadTextFileResponse> {
+    // Inert ACP filesystem stub; workspace reads are provided by MCP tools.
     return { content: "" };
   }
 }

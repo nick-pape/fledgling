@@ -44,14 +44,18 @@ class SmokeClient {
   }
 
   async requestPermission() {
+    // The smoke host implements the ACP client surface, but Fledgling's current
+    // workspace path is MCP-first and should not call these host methods.
     return { outcome: { outcome: "cancelled" } };
   }
 
   async writeTextFile() {
+    // Inert ACP filesystem stub; workspace writes are provided by MCP tools.
     return {};
   }
 
   async readTextFile() {
+    // Inert ACP filesystem stub; workspace reads are provided by MCP tools.
     return { content: "" };
   }
 }
