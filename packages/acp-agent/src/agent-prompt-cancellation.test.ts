@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ToolSet } from "ai";
 
 import type { SessionEvent } from "@fledgling/common";
 import { FileSystemSessionManager } from "@fledgling/session-file-system";
@@ -66,6 +67,82 @@ describe("FledglingAgent prompt cancellation", () => {
         sse: true
       }
     });
+    expect(response.authMethods).toEqual([]);
+  });
+
+  it("rejects unsupported ACP authentication methods", async () => {
+    const { agent } = await createTestAgent();
+
+    await expect(agent.authenticate({ methodId: "token" })).rejects.toThrow(
+      "Unsupported ACP authentication method: token"
+    );
+  });
+
+  it("returns write mode as the default mode for new sessions", async () => {
+    const { FledglingAgent } = await import("./agent.js");
+    const { manager, tempDir: createdTempDir } = await createTempSessionManager();
+    const agent = new FledglingAgent(createFakeConnection() as never, {
+      toolProvider: {
+        createSessionTools: vi.fn(async () => ({ clients: [], tools: {} }))
+      },
+      sessionManager: manager,
+      modelTurnRunner: {
+        runModelTurn: vi.fn()
+      }
+    });
+
+    const response = await agent.newSession({ cwd: createdTempDir, mcpServers: [] });
+
+    expect(typeof response.sessionId).toBe("string");
+    expect(response).toEqual({
+      sessionId: response.sessionId,
+      modes: {
+        currentModeId: "write",
+        availableModes: [
+          {
+            id: "read",
+            name: "Read",
+            description: "Inspect the workspace without file mutations or command execution."
+          },
+          {
+            id: "write",
+            name: "Write",
+            description: "Use all available workspace tools, including writes and command execution."
+          }
+        ]
+      }
+    });
+  });
+
+  it("sets session mode, emits a mode update, and persists the change", async () => {
+    const { agent, sessionId, sessionFile, sessionUpdates } = await createTestAgent();
+
+    await expect(agent.setSessionMode({ sessionId, modeId: "read" })).resolves.toEqual({});
+
+    expect(sessionUpdates).toEqual([
+      {
+        sessionId,
+        update: {
+          sessionUpdate: "current_mode_update",
+          currentModeId: "read"
+        }
+      }
+    ]);
+    expect(await loadStoredEvents(sessionFile)).toEqual([
+      expect.objectContaining({ type: "session.created" }),
+      expect.objectContaining({ type: "session.mode_changed", modeId: "read" })
+    ]);
+  });
+
+  it("rejects unknown session mode requests", async () => {
+    const { agent, sessionId } = await createTestAgent();
+
+    await expect(agent.setSessionMode({ sessionId: "missing", modeId: "read" })).rejects.toThrow(
+      "Unknown ACP session: missing"
+    );
+    await expect(agent.setSessionMode({ sessionId, modeId: "delete" })).rejects.toThrow(
+      "Unsupported ACP session mode: delete"
+    );
   });
 
   it("streams text responses and persists user and assistant messages", async () => {
@@ -164,6 +241,74 @@ describe("FledglingAgent prompt cancellation", () => {
       ["message.user", "hi"],
       ["message.assistant", "mcp-first"]
     ]);
+  });
+
+  it("filters known mutating workspace tools in read mode", async () => {
+    const tools = createNamedTools([
+      "workspace_read_file",
+      "workspace_list_directory",
+      "workspace_search_text",
+      "workspace_write_file",
+      "workspace_replace_range",
+      "workspace_run_command",
+      "workspace.read_file",
+      "workspace.write_file",
+      "workspace.run_command",
+      "external_mutate"
+    ]);
+    const { agent, sessionId, streamText } = await createTestAgent({ tools });
+    streamText.mockReturnValueOnce(createImmediateStream([]));
+
+    await agent.setSessionMode({ sessionId, modeId: "read" });
+    await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "inspect" }] })).resolves.toEqual({
+      stopReason: "end_turn"
+    });
+
+    const [[modelRequest]] = streamText.mock.calls as [[{ readonly tools: ToolSet }]];
+    expect(Object.keys(modelRequest.tools).sort()).toEqual([
+      "external_mutate",
+      "workspace.read_file",
+      "workspace_list_directory",
+      "workspace_read_file",
+      "workspace_search_text"
+    ]);
+  });
+
+  it("keeps all tools in write mode", async () => {
+    const tools = createNamedTools(["workspace_read_file", "workspace_write_file", "workspace_run_command"]);
+    const { agent, sessionId, streamText } = await createTestAgent({ tools });
+    streamText.mockReturnValueOnce(createImmediateStream([]));
+
+    await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "change" }] })).resolves.toEqual({
+      stopReason: "end_turn"
+    });
+
+    const [[modelRequest]] = streamText.mock.calls as [[{ readonly tools: ToolSet }]];
+    expect(Object.keys(modelRequest.tools).sort()).toEqual([
+      "workspace_read_file",
+      "workspace_run_command",
+      "workspace_write_file"
+    ]);
+  });
+
+  it("restores persisted mode when loading a session", async () => {
+    const tools = createNamedTools(["workspace_read_file", "workspace_write_file"]);
+    const { agent, sessionId, sessionManager, streamText, tempDir } = await createTestAgent({ tools });
+    streamText.mockReturnValueOnce(createImmediateStream([]));
+    await sessionManager.appendEvent({
+      ...sessionManager.createEventBase(sessionId),
+      type: "session.mode_changed",
+      modeId: "read"
+    });
+
+    const loadResponse = await agent.loadSession({ sessionId, cwd: tempDir, mcpServers: [] });
+    expect(loadResponse.modes?.currentModeId).toBe("read");
+    await expect(agent.prompt({ sessionId, prompt: [{ type: "text", text: "inspect" }] })).resolves.toEqual({
+      stopReason: "end_turn"
+    });
+
+    const [[modelRequest]] = streamText.mock.calls as [[{ readonly tools: ToolSet }]];
+    expect(Object.keys(modelRequest.tools)).toEqual(["workspace_read_file"]);
   });
 
   it("normalizes model start failures into diagnostics and durable errors", async () => {
@@ -425,7 +570,7 @@ describe("FledglingAgent prompt cancellation", () => {
     await expect(agent.newSession({ cwd: sessionStore.tempDir, mcpServers: [] })).rejects.toThrow("setup failed");
   });
 
-  async function createTestAgent(): Promise<{
+  async function createTestAgent(options: { readonly tools?: ToolSet } = {}): Promise<{
     readonly agent: FledglingAgent;
     readonly sessionId: string;
     readonly sessionFile: string;
@@ -440,7 +585,7 @@ describe("FledglingAgent prompt cancellation", () => {
     const { FledglingAgent } = await import("./agent.js");
     const agent = new FledglingAgent(createFakeConnection(sessionUpdates) as never, {
       toolProvider: {
-        createSessionTools: vi.fn(async () => ({ clients: [], tools: {} }))
+        createSessionTools: vi.fn(async () => ({ clients: [], tools: options.tools ?? {} }))
       },
       sessionManager,
       modelTurnRunner: {
@@ -467,6 +612,10 @@ interface FakeSessionUpdate {
     readonly sessionUpdate: string;
     readonly [key: string]: unknown;
   };
+}
+
+function createNamedTools(toolNames: readonly string[]): ToolSet {
+  return Object.fromEntries(toolNames.map((toolName) => [toolName, {}])) as ToolSet;
 }
 
 function createFakeConnection(sessionUpdates: FakeSessionUpdate[] = []): { sessionUpdate(params: FakeSessionUpdate): Promise<void> } {
