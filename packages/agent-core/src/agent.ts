@@ -53,6 +53,7 @@ const MUTATING_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "workspace_replace_range",
   "workspace_run_command",
   "workspace.write_file",
+  "workspace.replace_range",
   "workspace.run_command"
 ]);
 

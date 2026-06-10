@@ -253,6 +253,7 @@ describe("FledglingAgent prompt cancellation", () => {
       "workspace_run_command",
       "workspace.read_file",
       "workspace.write_file",
+      "workspace.replace_range",
       "workspace.run_command",
       "external_mutate"
     ]);
