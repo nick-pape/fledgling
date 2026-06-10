@@ -1,3 +1,9 @@
+/**
+ * In-memory session persistence for Fledgling.
+ *
+ * @packageDocumentation
+ */
+
 import type { ISessionManager, SessionEventBase } from "@fledgling/agent-core";
 import type { SessionEvent } from "@fledgling/common";
 
@@ -6,13 +12,32 @@ interface WebCryptoLike {
   getRandomValues?: <T extends Uint8Array>(array: T) => T;
 }
 
+/**
+ * Stores and loads Fledgling session events in process memory.
+ *
+ * Events are grouped by session ID and are discarded when the manager instance
+ * is discarded.
+ *
+ * @public
+ */
 export class MemorySessionManager implements ISessionManager {
   readonly #eventsBySessionId: Map<string, SessionEvent[]> = new Map();
 
+  /**
+   * Creates a new unique session identifier.
+   *
+   * @returns A UUID suitable for use as a Fledgling session ID.
+   */
   public createSessionId(): string {
     return createId();
   }
 
+  /**
+   * Creates the common event fields for a session event.
+   *
+   * @param sessionId - Session identifier that the event belongs to.
+   * @returns A base event object with a new event ID and timestamp.
+   */
   public createEventBase(sessionId: string): SessionEventBase {
     return {
       eventId: createId(),
@@ -21,12 +46,24 @@ export class MemorySessionManager implements ISessionManager {
     };
   }
 
+  /**
+   * Appends a session event to memory.
+   *
+   * @param event - Session event to append.
+   */
   public async appendEvent(event: SessionEvent): Promise<void> {
     const events = this.#eventsBySessionId.get(event.sessionId) ?? [];
     events.push(event);
     this.#eventsBySessionId.set(event.sessionId, events);
   }
 
+  /**
+   * Loads all stored events for a session.
+   *
+   * @param sessionId - Session identifier to load.
+   * @returns Events read from memory in insertion order.
+   * @throws Error when the session is unknown.
+   */
   public async loadEvents(sessionId: string): Promise<SessionEvent[]> {
     const events = this.#eventsBySessionId.get(sessionId);
     if (!events) {

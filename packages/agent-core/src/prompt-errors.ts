@@ -1,17 +1,33 @@
 import type { SessionErrorEvent } from "@fledgling/common";
 
+/** Session error kind used for prompt failures. */
 export type PromptErrorKind = SessionErrorEvent["kind"];
+
+/** Session error phase used for prompt failures. */
 export type PromptErrorPhase = SessionErrorEvent["phase"];
 
+/** Sanitized error details persisted for a failed prompt. */
 export interface NormalizedPromptError {
+  /** Fledgling session error kind. */
   readonly kind: PromptErrorKind;
+
+  /** Prompt lifecycle phase where the error occurred. */
   readonly phase: PromptErrorPhase;
+
+  /** Sanitized human-readable error message. */
   readonly message: string;
+
+  /** Whether a later prompt may continue the session. */
   readonly recoverable: boolean;
+
+  /** Sanitized original error name, when available. */
   readonly errorName: string | undefined;
+
+  /** Sanitized original error code, when available. */
   readonly errorCode: string | undefined;
 }
 
+/** Normalizes an unknown prompt failure into persisted session error details. */
 export function normalizePromptError(
   error: unknown,
   kind: PromptErrorKind,
@@ -27,6 +43,7 @@ export function normalizePromptError(
   };
 }
 
+/** Creates the RPC error surfaced to ACP clients for model prompt failures. */
 export function createPromptRpcError(error: unknown, phase: "model_start" | "model_stream"): Error {
   const normalized = normalizePromptError(
     error,
@@ -36,6 +53,7 @@ export function createPromptRpcError(error: unknown, phase: "model_start" | "mod
   return new Error(`Fledgling ${formatPromptErrorKind(normalized.kind)}: ${normalized.message}`);
 }
 
+/** Formats a prompt error kind for user-visible text. */
 export function formatPromptErrorKind(kind: PromptErrorKind): string {
   switch (kind) {
     case "model_start_failed":
@@ -49,6 +67,7 @@ export function formatPromptErrorKind(kind: PromptErrorKind): string {
   }
 }
 
+/** Removes unsafe control characters and redacts common secret forms from an error message. */
 export function sanitizeErrorMessage(message: string): string {
   const withoutControlCharacters = replaceControlCharacters(stripAnsiEscapeSequences(message));
   const normalized = withoutControlCharacters.replace(/\s+/g, " ").trim() || "Unknown error";

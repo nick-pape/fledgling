@@ -2,7 +2,13 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+/**
+ * Configuration file shape for Node MCP tool providers.
+ */
 export interface FledglingConfig {
+  /**
+   * MCP servers keyed by their configured server name.
+   */
   readonly mcpServers?: Record<string, McpServerConfig>;
 }
 
@@ -14,6 +20,9 @@ export interface ResolvedMcpServer {
   readonly config: McpServerConfig;
 }
 
+/**
+ * Supported MCP server connection configuration.
+ */
 export type McpServerConfig =
   | {
       readonly type: "firstPartyWorkspace";

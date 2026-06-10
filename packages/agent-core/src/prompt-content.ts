@@ -1,6 +1,7 @@
 import type { PromptRequest } from "@agentclientprotocol/sdk";
 import type { CoreMessage } from "ai";
 
+/** Converts AI SDK message content into plain text for ACP replay. */
 export function messageContentToText(content: CoreMessage["content"]): string {
   if (typeof content === "string") {
     return content;
@@ -25,6 +26,7 @@ export function messageContentToText(content: CoreMessage["content"]): string {
   return JSON.stringify(content);
 }
 
+/** Extracts user prompt text from an ACP prompt request. */
 export function extractPromptText(params: PromptRequest): string {
   const prompt = params.prompt;
 
@@ -51,6 +53,7 @@ export function extractPromptText(params: PromptRequest): string {
   return JSON.stringify(prompt);
 }
 
+/** Converts tool output into text suitable for ACP content updates. */
 export function stringifyToolOutput(output: unknown): string {
   if (typeof output === "string") {
     return output;
@@ -59,6 +62,7 @@ export function stringifyToolOutput(output: unknown): string {
   return JSON.stringify(output, null, 2);
 }
 
+/** Reads a Fledgling context hint from a tool output payload, when present. */
 export function extractContextHint(output: unknown): unknown {
   if (!output || typeof output !== "object") {
     return undefined;
@@ -83,6 +87,7 @@ export function extractContextHint(output: unknown): unknown {
   return undefined;
 }
 
+/** Wraps a non-object value so it can be sent through ACP raw object fields. */
 export function toRawObject(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, unknown>;

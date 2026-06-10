@@ -16,11 +16,24 @@ interface ContextHint {
   readonly routingTags?: string[];
 }
 
+/**
+ * Browser workspace MCP sidecar connected through an in-memory client transport.
+ */
 export interface WebWorkspaceSidecar {
+  /**
+   * Transport that a browser-side MCP client can connect to.
+   */
   readonly clientTransport: InMemoryTransport;
+
+  /**
+   * Closes the MCP server and its client transport.
+   */
   close(): Promise<void>;
 }
 
+/**
+ * Creates an MCP sidecar server backed by a browser workspace runtime.
+ */
 export async function createWebWorkspaceSidecar(runtime: IWorkspaceRuntime): Promise<WebWorkspaceSidecar> {
   const server = new McpServer(
     {
@@ -46,6 +59,9 @@ export async function createWebWorkspaceSidecar(runtime: IWorkspaceRuntime): Pro
   };
 }
 
+/**
+ * Registers browser workspace file, search, and command tools on an MCP server.
+ */
 export function registerWebWorkspaceTools(server: McpServer, runtime: IWorkspaceRuntime): void {
   server.registerTool(
     "workspace.read_file",

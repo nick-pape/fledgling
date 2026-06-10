@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+/**
+ * Logging ACP host CLI for exercising Fledgling sessions through the real ACP client side.
+ *
+ * @packageDocumentation
+ */
+export {};
+
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";

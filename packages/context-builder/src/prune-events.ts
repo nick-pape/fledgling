@@ -1,21 +1,58 @@
 import type { SessionEvent, ToolCallEvent, ToolResultEvent } from "@fledgling/common";
 
+/**
+ * Options for pruning older volatile tool events.
+ */
 export interface PruneEventsOptions {
+  /**
+   * Number of latest tool results to keep for each result group.
+   */
   readonly keepLatestToolResultsPerGroup?: number;
+
+  /**
+   * Number of latest tool calls to keep for each tool name.
+   */
   readonly keepLatestToolCallsPerGroup?: number;
 }
 
+/**
+ * Events retained after pruning, plus records for removed events.
+ */
 export interface PrunedEvents {
+  /**
+   * Events retained in their original order.
+   */
   readonly events: SessionEvent[];
+
+  /**
+   * Events removed by pruning.
+   */
   readonly dropped: DroppedEvent[];
 }
 
+/**
+ * Description of an event removed from context.
+ */
 export interface DroppedEvent {
+  /**
+   * Identifier of the removed event.
+   */
   readonly eventId: string;
+
+  /**
+   * Type of the removed event.
+   */
   readonly type: SessionEvent["type"];
+
+  /**
+   * Machine-readable reason the event was removed.
+   */
   readonly reason: string;
 }
 
+/**
+ * Removes older volatile tool calls and results while preserving recent entries per group.
+ */
 export function pruneOldVolatileEvents(
   events: readonly SessionEvent[],
   options: PruneEventsOptions = {}
