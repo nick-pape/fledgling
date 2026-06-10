@@ -53,6 +53,21 @@ describe("FledglingAgent prompt cancellation", () => {
     }
   });
 
+  it("advertises only the minimum supported ACP agent capabilities", async () => {
+    const { agent } = await createTestAgent();
+
+    const response = await agent.initialize({ protocolVersion: 1, clientCapabilities: {} } as never);
+
+    expect(typeof response.protocolVersion).toBe("number");
+    expect(response.agentCapabilities).toEqual({
+      loadSession: true,
+      mcpCapabilities: {
+        http: true,
+        sse: true
+      }
+    });
+  });
+
   it("streams text responses and persists user and assistant messages", async () => {
     const { agent, sessionId, streamText, sessionFile, sessionUpdates } = await createTestAgent();
     streamText.mockReturnValueOnce(createImmediateStream([{ type: "text-delta", text: "hello" }]));
@@ -113,6 +128,42 @@ describe("FledglingAgent prompt cancellation", () => {
     expect((await loadStoredEvents(sessionFile))[5]).toEqual(
       expect.objectContaining({ type: "tool.result", toolName: "workspace_write", status: "failed" })
     );
+  });
+
+  it("does not use ACP host filesystem or permission methods during prompt flow", async () => {
+    const { manager: sessionManager, sessionFile, tempDir: createdTempDir } = await createTempSessionManager();
+    const sessionUpdates: FakeSessionUpdate[] = [];
+    const hostMethods = createFailingHostMethods();
+    const streamText = vi.fn(() => createImmediateStream([{ type: "text-delta", text: "mcp-first" }]));
+    const { FledglingAgent } = await import("./agent.js");
+    const agent = new FledglingAgent(
+      {
+        ...createFakeConnection(sessionUpdates),
+        ...hostMethods
+      } as never,
+      {
+        toolProvider: {
+          createSessionTools: vi.fn(async () => ({ clients: [], tools: {} }))
+        },
+        sessionManager,
+        modelTurnRunner: {
+          runModelTurn: streamText
+        }
+      } satisfies FledglingAgentDependencies
+    );
+    const session = await agent.newSession({ cwd: createdTempDir, mcpServers: [] });
+
+    await expect(agent.prompt({ sessionId: session.sessionId, prompt: [{ type: "text", text: "hi" }] })).resolves.toEqual({
+      stopReason: "end_turn"
+    });
+
+    expect(hostMethods.requestPermission).not.toHaveBeenCalled();
+    expect(hostMethods.readTextFile).not.toHaveBeenCalled();
+    expect(hostMethods.writeTextFile).not.toHaveBeenCalled();
+    expect(await loadStoredMessages(sessionFile)).toEqual([
+      ["message.user", "hi"],
+      ["message.assistant", "mcp-first"]
+    ]);
   });
 
   it("normalizes model start failures into diagnostics and durable errors", async () => {
@@ -423,6 +474,24 @@ function createFakeConnection(sessionUpdates: FakeSessionUpdate[] = []): { sessi
     async sessionUpdate(params: FakeSessionUpdate): Promise<void> {
       sessionUpdates.push(params);
     }
+  };
+}
+
+function createFailingHostMethods(): {
+  readonly requestPermission: ReturnType<typeof vi.fn>;
+  readonly readTextFile: ReturnType<typeof vi.fn>;
+  readonly writeTextFile: ReturnType<typeof vi.fn>;
+} {
+  return {
+    requestPermission: vi.fn(async () => {
+      throw new Error("ACP host permission should not be used");
+    }),
+    readTextFile: vi.fn(async () => {
+      throw new Error("ACP host readTextFile should not be used");
+    }),
+    writeTextFile: vi.fn(async () => {
+      throw new Error("ACP host writeTextFile should not be used");
+    })
   };
 }
 

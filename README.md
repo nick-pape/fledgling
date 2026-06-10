@@ -75,9 +75,16 @@ Sessions are written as JSONL event logs under `.fledgling/sessions` by default.
 
 The agent advertises ACP `loadSession` support. Loading a session rebuilds the user/assistant message history from stored events and replays that transcript to the ACP client.
 
+## ACP and MCP capability contract
+
+Fledgling uses ACP for agent orchestration: initialization, sessions, prompt turns, cancellation, session updates, and session loading.
+
+Workspace capabilities are MCP-first. File reads, file writes, directory listing, text search, and command execution are exposed through MCP tools, including the `firstPartyWorkspace` MCP server. Fledgling does not currently use ACP host filesystem or terminal APIs as workspace backends.
+
+ACP host `readTextFile`, `writeTextFile`, and terminal integration may be added later for hosts that only expose those APIs. Permission prompts for MCP-backed writes and commands are also future work.
+
 ## Current Limitations
 
 - Prompt input is treated mostly as text; rich ACP prompt parts are not yet preserved semantically.
-- Workspace access is provided through MCP tools, not ACP host filesystem or terminal APIs.
 - ACP authentication, session modes, model selection, and permission prompts are still minimal or stubbed.
 - Tool result context hints are recorded but not yet used for full context-store replay.

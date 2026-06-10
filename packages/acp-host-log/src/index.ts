@@ -56,16 +56,20 @@ class LoggingHost implements acp.Client {
   }
 
   public async requestPermission(params: acp.RequestPermissionRequest): Promise<acp.RequestPermissionResponse> {
+    // This host implements the ACP client surface for logging, but Fledgling's
+    // current workspace path is MCP-first and should not call this method.
     emitTranscript("session/request_permission", { params });
     return { outcome: { outcome: "cancelled" } };
   }
 
   public async writeTextFile(params: acp.WriteTextFileRequest): Promise<acp.WriteTextFileResponse> {
+    // Inert ACP filesystem stub; workspace writes are provided by MCP tools.
     emitTranscript("fs/write_text_file", { params });
     return {};
   }
 
   public async readTextFile(params: acp.ReadTextFileRequest): Promise<acp.ReadTextFileResponse> {
+    // Inert ACP filesystem stub; workspace reads are provided by MCP tools.
     emitTranscript("fs/read_text_file", { params });
     return { content: "" };
   }
