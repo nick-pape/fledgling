@@ -56,14 +56,14 @@ describe("FledglingAgent prompt cancellation", () => {
   it("advertises only the minimum supported ACP agent capabilities", async () => {
     const { agent } = await createTestAgent();
 
-    await expect(agent.initialize({ protocolVersion: 1, clientCapabilities: {} } as never)).resolves.toEqual({
-      protocolVersion: expect.any(Number),
-      agentCapabilities: {
-        loadSession: true,
-        mcpCapabilities: {
-          http: true,
-          sse: true
-        }
+    const response = await agent.initialize({ protocolVersion: 1, clientCapabilities: {} } as never);
+
+    expect(typeof response.protocolVersion).toBe("number");
+    expect(response.agentCapabilities).toEqual({
+      loadSession: true,
+      mcpCapabilities: {
+        http: true,
+        sse: true
       }
     });
   });
