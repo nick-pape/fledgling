@@ -19,7 +19,7 @@
     "@agentclientprotocol/sdk": "^0.4.3",
     "@ai-sdk/mcp": "0.0.18",
     "@fledgling/agent-core": "workspace:*",
-    "@fledgling/mcp-workspace-webcontainer": "workspace:*",
+    "@fledgling/mcp-workspace-browser": "workspace:*",
     "@fledgling/session-local-storage": "workspace:*",
     "ai": "^5.0.0"
   },

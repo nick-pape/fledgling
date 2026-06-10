@@ -1,41 +1,13 @@
 import type { WebContainer } from "@webcontainer/api";
-
-export interface WorkspaceFileEntry {
-  readonly type: "file";
-  readonly name: string;
-  readonly path: string;
-  readonly sizeBytes: number;
-}
-
-export interface WorkspaceDirectoryEntry {
-  readonly type: "directory";
-  readonly name: string;
-  readonly path: string;
-}
-
-export type WorkspaceEntry = WorkspaceFileEntry | WorkspaceDirectoryEntry;
-
-export interface CommandResult {
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly timedOut: boolean;
-  readonly truncated: boolean;
-}
-
-export interface IWorkspaceRuntime {
-  readFile(path: string): Promise<string>;
-  writeFile(path: string, content: string): Promise<void>;
-  listDirectory(path: string): Promise<WorkspaceEntry[]>;
-  searchText(query: string, path: string): Promise<readonly SearchMatch[]>;
-  runCommand(command: string, cwd: string, timeoutMs: number, maxOutputBytes: number): Promise<CommandResult>;
-}
-
-export interface SearchMatch {
-  readonly path: string;
-  readonly line: number;
-  readonly text: string;
-}
+import {
+  appendSearchMatches,
+  joinWorkspacePath,
+  normalizeWorkspacePath,
+  type CommandResult,
+  type IWorkspaceRuntime,
+  type SearchMatch,
+  type WorkspaceEntry
+} from "@fledgling/mcp-workspace-browser";
 
 export class WebContainerWorkspaceRuntime implements IWorkspaceRuntime {
   readonly #container: WebContainer;
@@ -195,22 +167,4 @@ function raceAbort<T>(promise: Promise<T>, abortSignal: AbortSignal): Promise<T>
 function killProcess(process: unknown): void {
   const candidate = process as { kill?: () => void };
   candidate.kill?.();
-}
-
-function appendSearchMatches(matches: SearchMatch[], path: string, content: string, query: string): void {
-  const lines = content.split(/\r?\n/);
-  for (const [index, line] of lines.entries()) {
-    if (line.includes(query)) {
-      matches.push({ path, line: index + 1, text: line });
-    }
-  }
-}
-
-function normalizeWorkspacePath(path: string): string {
-  const normalized = path.replaceAll("\\", "/").replace(/^\/+/, "");
-  return normalized.length === 0 || normalized === "." ? "." : normalized;
-}
-
-function joinWorkspacePath(parent: string, child: string): string {
-  return parent === "." ? child : `${parent}/${child}`;
 }

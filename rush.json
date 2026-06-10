@@ -51,8 +51,20 @@
       "projectFolder": "packages/web-agent"
     },
     {
+      "packageName": "@fledgling/web-demo",
+      "projectFolder": "packages/web-demo"
+    },
+    {
+      "packageName": "@fledgling/mcp-workspace-browser",
+      "projectFolder": "packages/mcp-workspace-browser"
+    },
+    {
       "packageName": "@fledgling/mcp-workspace-webcontainer",
       "projectFolder": "packages/mcp-workspace-webcontainer"
+    },
+    {
+      "packageName": "@fledgling/workspace-nodepod",
+      "projectFolder": "packages/workspace-nodepod"
     },
     {
       "packageName": "@fledgling/acp-host-log",

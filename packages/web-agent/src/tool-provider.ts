@@ -5,7 +5,7 @@ import {
 } from "@ai-sdk/mcp";
 import type { IToolProvider, SessionTools } from "@fledgling/agent-core";
 import type * as acp from "@agentclientprotocol/sdk";
-import type { WebWorkspaceSidecar } from "@fledgling/mcp-workspace-webcontainer";
+import type { WebWorkspaceSidecar } from "@fledgling/mcp-workspace-browser";
 import type { ToolSet } from "ai";
 
 export interface WebMcpToolProviderOptions {

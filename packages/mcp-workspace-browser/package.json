@@ -1,8 +1,8 @@
 {
-  "name": "@fledgling/mcp-workspace-webcontainer",
+  "name": "@fledgling/mcp-workspace-browser",
   "version": "0.0.0",
   "private": true,
-  "description": "Browser MCP workspace sidecar backed by WebContainer-compatible runtimes.",
+  "description": "Browser MCP workspace sidecar backed by pluggable browser runtimes.",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -14,9 +14,7 @@
     "_phase:test": "vitest run --coverage"
   },
   "dependencies": {
-    "@fledgling/mcp-workspace-browser": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.21.0",
-    "@webcontainer/api": "^1.5.1",
     "zod": "^3.25.0"
   },
   "devDependencies": {
