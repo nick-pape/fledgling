@@ -38,8 +38,8 @@ export function messageContentToText(content: CoreMessage["content"]): string {
           return part;
         }
 
-        if (typeof part === "object" && "text" in part && typeof part.text === "string") {
-          return part.text;
+        if (typeof part === "object") {
+          return modelContentPartToText(part);
         }
 
         return JSON.stringify(part);
@@ -223,7 +223,7 @@ function renderResourceLink(part: FledglingResourceLinkContentPart): string {
 
 function renderImage(part: FledglingImageContentPart): string {
   const source = part.uri ? `, uri: ${part.uri}` : "";
-  return `[Image: ${part.mimeType}${source}, base64 bytes: ${part.data.length}]`;
+  return `[Image: ${part.mimeType}${source}, base64 chars: ${part.data.length}]`;
 }
 
 function readBlockType(part: unknown): string | undefined {
@@ -232,4 +232,27 @@ function readBlockType(part: unknown): string | undefined {
   }
 
   return undefined;
+}
+
+function modelContentPartToText(part: object): string {
+  if ("text" in part && typeof part.text === "string") {
+    return part.text;
+  }
+
+  if ("type" in part && part.type === "image") {
+    const mediaType = "mediaType" in part && typeof part.mediaType === "string" ? part.mediaType : "unknown";
+    const image = "image" in part ? part.image : undefined;
+    const length = typeof image === "string" ? `, base64 chars: ${image.length}` : "";
+    return `[Image: ${mediaType}${length}]`;
+  }
+
+  if ("type" in part && part.type === "file") {
+    const mediaType = "mediaType" in part && typeof part.mediaType === "string" ? part.mediaType : "unknown";
+    const filename = "filename" in part && typeof part.filename === "string" ? `, filename: ${part.filename}` : "";
+    const data = "data" in part ? part.data : undefined;
+    const length = typeof data === "string" ? `, base64 chars: ${data.length}` : "";
+    return `[File: ${mediaType}${filename}${length}]`;
+  }
+
+  return JSON.stringify(part);
 }

@@ -222,7 +222,7 @@ describe("FledglingAgent prompt cancellation", () => {
     expect((await loadStoredEvents(sessionFile))[1]).toEqual(
       expect.objectContaining({
         type: "message.user",
-        text: "Review these.\n[Resource link: README.md <file:///repo/README.md> (text/markdown)]\n[Image: image/png, base64 bytes: 8]",
+        text: "Review these.\n[Resource link: README.md <file:///repo/README.md> (text/markdown)]\n[Image: image/png, base64 chars: 8]",
         content: [
           { type: "text", text: "Review these." },
           {
@@ -628,7 +628,7 @@ describe("FledglingAgent prompt cancellation", () => {
     await sessionManager.appendEvent({
       ...sessionManager.createEventBase(sessionId),
       type: "message.user",
-      text: "Describe this.\n[Image: image/png, base64 bytes: 8]",
+      text: "Describe this.\n[Image: image/png, base64 chars: 8]",
       content: [
         { type: "text", text: "Describe this." },
         { type: "image", data: "aW1hZ2U=", mimeType: "image/png" }

@@ -1,10 +1,10 @@
 import type {
   ContextMessage,
   FledglingMessageContent,
-  FledglingMessageContentPart,
   FledglingModelMessageContent,
   FledglingModelMessageContentPart,
   FledglingResourceLinkContentPart,
+  FledglingUnsupportedContentPart,
   SessionEvent
 } from "@fledgling/common";
 
@@ -339,20 +339,12 @@ function toContextContent(
   return parts.length > 0 ? parts : fallbackText;
 }
 
-function renderContentPart(part: FledglingMessageContentPart): string {
+function renderContentPart(part: FledglingResourceLinkContentPart | FledglingUnsupportedContentPart): string {
   if (part.type === "resource_link") {
     return renderResourceLink(part);
   }
 
-  if (part.type === "unsupported") {
-    return `[Unsupported ACP content block${part.originalType ? `: ${part.originalType}` : ""}] ${JSON.stringify(part.raw)}`;
-  }
-
-  if (part.type === "image") {
-    return `[Image: ${part.mimeType}${part.uri ? `, uri: ${part.uri}` : ""}, base64 bytes: ${part.data.length}]`;
-  }
-
-  return part.text;
+  return `[Unsupported ACP content block${part.originalType ? `: ${part.originalType}` : ""}] ${JSON.stringify(part.raw)}`;
 }
 
 function renderResourceLink(part: FledglingResourceLinkContentPart): string {

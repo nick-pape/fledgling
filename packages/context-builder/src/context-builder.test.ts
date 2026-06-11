@@ -76,7 +76,7 @@ describe("context builder", () => {
         ...base,
         eventId: "rich-user",
         type: "message.user",
-        text: "Look.\n[Resource link: README.md <file:///repo/README.md> (text/markdown)]\n[Image: image/png, base64 bytes: 8]",
+        text: "Look.\n[Resource link: README.md <file:///repo/README.md> (text/markdown)]\n[Image: image/png, base64 chars: 8]",
         content: [
           { type: "text", text: "Look." },
           {

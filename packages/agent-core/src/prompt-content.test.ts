@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { convertPromptContent, renderPromptContent } from "./prompt-content.js";
+import { convertPromptContent, messageContentToText, renderPromptContent } from "./prompt-content.js";
 
 describe("prompt content conversion", () => {
   it("preserves text and resource links with deterministic fallback text", () => {
@@ -60,7 +60,7 @@ describe("prompt content conversion", () => {
       { type: "text", text: "Describe this." },
       { type: "image", data: "aW1hZ2U=", mimeType: "image/png", uri: "file:///repo/image.png" }
     ]);
-    expect(converted.text).toBe("Describe this.\n[Image: image/png, uri: file:///repo/image.png, base64 bytes: 8]");
+    expect(converted.text).toBe("Describe this.\n[Image: image/png, uri: file:///repo/image.png, base64 chars: 8]");
     expect(converted.modelContent).toEqual([
       { type: "text", text: "Describe this." },
       { type: "image", image: "aW1hZ2U=", mediaType: "image/png" }
@@ -73,8 +73,8 @@ describe("prompt content conversion", () => {
       prompt: [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }]
     });
 
-    expect(converted.text).toBe("[Image: image/png, base64 bytes: 8]");
-    expect(converted.modelContent).toBe("[Image: image/png, base64 bytes: 8]");
+    expect(converted.text).toBe("[Image: image/png, base64 chars: 8]");
+    expect(converted.modelContent).toBe("[Image: image/png, base64 chars: 8]");
   });
 
   it("preserves unsupported blocks and renders them as fallback text", () => {
@@ -88,5 +88,15 @@ describe("prompt content conversion", () => {
     expect(renderPromptContent(converted.content)).toBe(
       '[Unsupported ACP content block: audio] {"type":"audio","data":"abc","mimeType":"audio/wav"}'
     );
+  });
+
+  it("renders model image and file parts without serializing payloads", () => {
+    expect(
+      messageContentToText([
+        { type: "text", text: "Loaded image" },
+        { type: "image", image: "aW1hZ2U=", mediaType: "image/png" },
+        { type: "file", data: "ZmlsZQ==", mediaType: "application/pdf", filename: "report.pdf" }
+      ])
+    ).toBe("Loaded image\n[Image: image/png, base64 chars: 8]\n[File: application/pdf, filename: report.pdf, base64 chars: 8]");
   });
 });

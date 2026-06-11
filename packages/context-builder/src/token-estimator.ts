@@ -32,7 +32,7 @@ function messageContentToText(content: FledglingModelMessageContent): string {
         return part.text;
       }
 
-      return `[Image: ${part.mimeType}${part.uri ? `, uri: ${part.uri}` : ""}, base64 bytes: ${part.data.length}]`;
+      return `[Image: ${part.mimeType}${part.uri ? `, uri: ${part.uri}` : ""}, base64 chars: ${part.data.length}]`;
     })
     .join("\n");
 }
