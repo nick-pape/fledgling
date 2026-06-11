@@ -45,6 +45,7 @@ Optional environment variables:
 - `FLEDGLING_CONFIG`: path to a launch config, default `./fledgling.config.json`.
 - `FLEDGLING_OPENAI_API`: `chat` or `responses`, default `chat` for OpenAI-compatible local backends.
 - `FLEDGLING_TOOL_CHOICE`: optional debug override to force one tool, for example `workspace_list_directory`.
+- `FLEDGLING_PROMPT_IMAGE_INPUT`: set to `0` to disable ACP image prompt input in the Node agent.
 
 Launch config supports MCP servers:
 
@@ -87,6 +88,6 @@ Fledgling advertises no ACP authentication methods. Sessions support `read` and 
 
 ## Current Limitations
 
-- Prompt input is treated mostly as text; rich ACP prompt parts are not yet preserved semantically.
+- ACP text, resource link, and image prompt parts are preserved in session logs. Resource links are rendered as deterministic text for model input; images are forwarded when image input is enabled.
 - ACP model selection and permission prompts are still minimal or stubbed.
 - Tool result context hints are recorded but not yet used for full context-store replay.

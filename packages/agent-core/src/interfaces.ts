@@ -137,6 +137,12 @@ export interface FledglingAgentDependencies {
   /** Runs model turns for prompts. */
   readonly modelTurnRunner: IModelTurnRunner;
 
+  /** Optional prompt content capabilities supported by this host/model path. */
+  readonly promptContent?: {
+    /** Whether image prompt blocks should be advertised and forwarded to the model. */
+    readonly imageInput?: boolean;
+  };
+
   /** Optional structured logger for diagnostics and cleanup failures. */
   readonly logger?: IRuntimeLogger;
 

@@ -70,6 +70,9 @@ export function createDefaultDependencies(): FledglingAgentDependencies {
     toolProvider: new NodeMcpToolProvider(),
     sessionManager: new FileSystemSessionManager(),
     modelTurnRunner: new VercelAiSdkModelTurnRunner(),
+    promptContent: {
+      imageInput: process.env.FLEDGLING_PROMPT_IMAGE_INPUT !== "0"
+    },
     logger: {
       debug(value: unknown): void {
         console.error(JSON.stringify(value));

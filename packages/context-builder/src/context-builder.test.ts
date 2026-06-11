@@ -70,6 +70,41 @@ describe("context builder", () => {
     });
   });
 
+  it("builds replay context from structured user content", () => {
+    const richEvents = [
+      {
+        ...base,
+        eventId: "rich-user",
+        type: "message.user",
+        text: "Look.\n[Resource link: README.md <file:///repo/README.md> (text/markdown)]\n[Image: image/png, base64 bytes: 8]",
+        content: [
+          { type: "text", text: "Look." },
+          {
+            type: "resource_link",
+            uri: "file:///repo/README.md",
+            name: "README.md",
+            title: undefined,
+            description: undefined,
+            mimeType: "text/markdown",
+            size: undefined
+          },
+          { type: "image", data: "aW1hZ2U=", mimeType: "image/png", uri: undefined }
+        ]
+      }
+    ] as const;
+
+    expect(eventsToMessages(richEvents)).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Look." },
+          { type: "text", text: "[Resource link: README.md <file:///repo/README.md> (text/markdown)]" },
+          { type: "image", data: "aW1hZ2U=", mimeType: "image/png", uri: undefined }
+        ]
+      }
+    ]);
+  });
+
   it("drops old volatile tool results before preparing compaction", () => {
     const pruned = pruneOldVolatileEvents(events, {
       keepLatestToolResultsPerGroup: 1,

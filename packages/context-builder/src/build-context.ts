@@ -1,4 +1,12 @@
-import type { ContextMessage, SessionEvent } from "@fledgling/common";
+import type {
+  ContextMessage,
+  FledglingMessageContent,
+  FledglingMessageContentPart,
+  FledglingModelMessageContent,
+  FledglingModelMessageContentPart,
+  FledglingResourceLinkContentPart,
+  SessionEvent
+} from "@fledgling/common";
 
 import { pruneOldVolatileEvents, type DroppedEvent, type PruneEventsOptions } from "./prune-events.js";
 import { estimateEventTokens, estimateMessagesTokens } from "./token-estimator.js";
@@ -296,7 +304,7 @@ export function eventsToMessages(events: readonly SessionEvent[]): ContextMessag
   for (const event of events) {
     switch (event.type) {
       case "message.user":
-        messages.push({ role: "user", content: event.text });
+        messages.push({ role: "user", content: toContextContent(event.content, event.text) });
         break;
 
       case "message.assistant":
@@ -306,6 +314,55 @@ export function eventsToMessages(events: readonly SessionEvent[]): ContextMessag
   }
 
   return messages;
+}
+
+function toContextContent(
+  content: FledglingMessageContent | undefined,
+  fallbackText: string
+): FledglingModelMessageContent {
+  if (content === undefined || typeof content === "string") {
+    return content ?? fallbackText;
+  }
+
+  const parts: FledglingModelMessageContentPart[] = content.map((part) => {
+    if (part.type === "text" || part.type === "image") {
+      return part;
+    }
+
+    return { type: "text", text: renderContentPart(part) };
+  });
+
+  if (parts.length === 1 && parts[0]?.type === "text") {
+    return parts[0].text;
+  }
+
+  return parts.length > 0 ? parts : fallbackText;
+}
+
+function renderContentPart(part: FledglingMessageContentPart): string {
+  if (part.type === "resource_link") {
+    return renderResourceLink(part);
+  }
+
+  if (part.type === "unsupported") {
+    return `[Unsupported ACP content block${part.originalType ? `: ${part.originalType}` : ""}] ${JSON.stringify(part.raw)}`;
+  }
+
+  if (part.type === "image") {
+    return `[Image: ${part.mimeType}${part.uri ? `, uri: ${part.uri}` : ""}, base64 bytes: ${part.data.length}]`;
+  }
+
+  return part.text;
+}
+
+function renderResourceLink(part: FledglingResourceLinkContentPart): string {
+  const label = part.title ?? part.name;
+  const details = [part.mimeType, part.size === undefined ? undefined : `${part.size} bytes`]
+    .filter((value): value is string => value !== undefined)
+    .join(", ");
+  const suffix = details ? ` (${details})` : "";
+  const description = part.description ? ` - ${part.description}` : "";
+  return `[Resource link: ${label} <${part.uri}>${suffix}]${description}`;
 }
 
 function splitLatestTurns(
