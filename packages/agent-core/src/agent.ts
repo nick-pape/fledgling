@@ -1,7 +1,7 @@
 import * as acp from "@agentclientprotocol/sdk";
 import { buildContext } from "@fledgling/context-builder";
 import type { SessionEvent } from "@fledgling/common";
-import type { CoreMessage, ToolSet } from "ai";
+import type { CoreMessage, JSONValue, ToolSet } from "ai";
 
 import type { FledglingAgentDependencies, IClosable } from "./interfaces.js";
 import {
@@ -20,6 +20,33 @@ import {
   toRawObject
 } from "./prompt-content.js";
 import { SessionCleanup } from "./session-cleanup.js";
+
+type AssistantHistoryPart =
+  | {
+      readonly type: "text";
+      readonly text: string;
+    }
+  | {
+      readonly type: "tool-call";
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly input: unknown;
+    };
+
+type ToolResultOutput =
+  | {
+      readonly type: "text" | "error-text";
+      readonly value: string;
+    }
+  | {
+      readonly type: "json" | "error-json";
+      readonly value: JSONValue;
+    };
+
+interface ToolHistoryBuilder {
+  pendingAssistantText: string;
+  readonly pendingAssistantParts: AssistantHistoryPart[];
+}
 
 interface SessionState {
   readonly id: string;
@@ -238,6 +265,10 @@ export class FledglingAgent implements acp.Agent {
     session.pendingPrompt = promptController;
 
     let assistantText = "";
+    const toolHistory: ToolHistoryBuilder = {
+      pendingAssistantText: "",
+      pendingAssistantParts: []
+    };
 
     try {
       session.history.push({ role: "user", content: userPrompt.modelContent });
@@ -274,6 +305,7 @@ export class FledglingAgent implements acp.Agent {
           switch (part.type) {
             case "text-delta": {
               assistantText += part.text;
+              toolHistory.pendingAssistantText += part.text;
               await this.#connection.sessionUpdate({
                 sessionId: params.sessionId,
                 update: {
@@ -289,6 +321,7 @@ export class FledglingAgent implements acp.Agent {
 
             case "tool-call": {
               session.toolCallNames.set(part.toolCallId, part.toolName);
+              appendAssistantToolCall(toolHistory, part);
               await this.#dependencies.sessionManager.appendEvent({
                 ...this.#dependencies.sessionManager.createEventBase(session.id),
                 type: "tool.call",
@@ -312,6 +345,14 @@ export class FledglingAgent implements acp.Agent {
             }
 
             case "tool-result": {
+              const safeOutput = toSafeRawValue(part.output);
+              flushAssistantToolHistory(session, toolHistory);
+              appendToolResultHistory(session, {
+                toolCallId: part.toolCallId,
+                toolName: session.toolCallNames.get(part.toolCallId),
+                output: safeOutput,
+                status: "completed"
+              });
               await this.#dependencies.sessionManager.appendEvent({
                 ...this.#dependencies.sessionManager.createEventBase(session.id),
                 type: "tool.result",
@@ -319,7 +360,7 @@ export class FledglingAgent implements acp.Agent {
                 toolName: session.toolCallNames.get(part.toolCallId),
                 status: "completed",
                 text: stringifyToolOutput(part.output),
-                rawOutput: part.output,
+                rawOutput: safeOutput,
                 contextHint: extractContextHint(part.output)
               });
               await this.#connection.sessionUpdate({
@@ -337,13 +378,21 @@ export class FledglingAgent implements acp.Agent {
                       }
                     }
                   ],
-                  rawOutput: toRawObject(part.output)
+                  rawOutput: toRawObject(safeOutput)
                 }
               });
               break;
             }
 
             case "tool-error": {
+              const safeError = toSafeRawValue(part.error);
+              flushAssistantToolHistory(session, toolHistory);
+              appendToolResultHistory(session, {
+                toolCallId: part.toolCallId,
+                toolName: session.toolCallNames.get(part.toolCallId),
+                output: safeError,
+                status: "failed"
+              });
               await this.#dependencies.sessionManager.appendEvent({
                 ...this.#dependencies.sessionManager.createEventBase(session.id),
                 type: "tool.result",
@@ -351,7 +400,7 @@ export class FledglingAgent implements acp.Agent {
                 toolName: session.toolCallNames.get(part.toolCallId),
                 status: "failed",
                 text: stringifyToolOutput(part.error),
-                rawOutput: toRawObject(part.error),
+                rawOutput: toRawObject(safeError),
                 contextHint: undefined
               });
               await this.#connection.sessionUpdate({
@@ -369,7 +418,7 @@ export class FledglingAgent implements acp.Agent {
                       }
                     }
                   ],
-                  rawOutput: toRawObject(part.error)
+                  rawOutput: toRawObject(safeError)
                 }
               });
               break;
@@ -382,6 +431,8 @@ export class FledglingAgent implements acp.Agent {
         }
 
         const assistantTextPersisted = assistantText.length > 0;
+        flushAssistantToolHistory(session, toolHistory);
+        appendAssistantTextHistory(session, toolHistory);
         if (assistantTextPersisted) {
           await this.#persistAssistantMessage(session, assistantText);
         }
@@ -395,6 +446,8 @@ export class FledglingAgent implements acp.Agent {
         throw createPromptRpcError(error, "model_stream");
       }
 
+      flushAssistantToolHistory(session, toolHistory);
+      appendAssistantTextHistory(session, toolHistory);
       await this.#persistAssistantMessage(session, assistantText);
 
       return {
@@ -414,7 +467,6 @@ export class FledglingAgent implements acp.Agent {
   }
 
   async #persistAssistantMessage(session: SessionState, assistantText: string): Promise<void> {
-    session.history.push({ role: "assistant", content: assistantText });
     await this.#dependencies.sessionManager.appendEvent({
       ...this.#dependencies.sessionManager.createEventBase(session.id),
       type: "message.assistant",
@@ -467,13 +519,149 @@ export class FledglingAgent implements acp.Agent {
   }
 }
 
+function appendAssistantToolCall(
+  toolHistory: ToolHistoryBuilder,
+  part: {
+    readonly toolCallId: string;
+    readonly toolName: string;
+    readonly input: unknown;
+  }
+): void {
+  if (toolHistory.pendingAssistantText) {
+    toolHistory.pendingAssistantParts.push({ type: "text", text: toolHistory.pendingAssistantText });
+    toolHistory.pendingAssistantText = "";
+  }
+
+  toolHistory.pendingAssistantParts.push({
+    type: "tool-call",
+    toolCallId: part.toolCallId,
+    toolName: part.toolName,
+    input: part.input
+  });
+}
+
+function flushAssistantToolHistory(session: SessionState, toolHistory: ToolHistoryBuilder): void {
+  if (toolHistory.pendingAssistantParts.length === 0) {
+    return;
+  }
+
+  if (toolHistory.pendingAssistantText) {
+    toolHistory.pendingAssistantParts.push({ type: "text", text: toolHistory.pendingAssistantText });
+    toolHistory.pendingAssistantText = "";
+  }
+
+  session.history.push({
+    role: "assistant",
+    content: [...toolHistory.pendingAssistantParts]
+  } as CoreMessage);
+  toolHistory.pendingAssistantParts.length = 0;
+}
+
+function appendAssistantTextHistory(session: SessionState, toolHistory: ToolHistoryBuilder): void {
+  if (!toolHistory.pendingAssistantText) {
+    return;
+  }
+
+  session.history.push({ role: "assistant", content: toolHistory.pendingAssistantText });
+  toolHistory.pendingAssistantText = "";
+}
+
+function appendToolResultHistory(
+  session: SessionState,
+  result: {
+    readonly toolCallId: string;
+    readonly toolName: string | undefined;
+    readonly output: unknown;
+    readonly status: "completed" | "failed";
+  }
+): void {
+  session.history.push({
+    role: "tool",
+    content: [
+      {
+        type: "tool-result",
+        toolCallId: result.toolCallId,
+        toolName: result.toolName ?? "unknown_tool",
+        output: toToolResultOutput(result.output, result.status)
+      }
+    ]
+  } as CoreMessage);
+}
+
+function toToolResultOutput(output: unknown, status: "completed" | "failed"): ToolResultOutput {
+  if (status === "failed") {
+    return {
+      type: "error-text",
+      value: stringifyModelToolOutput(output)
+    };
+  }
+
+  const jsonValue = toJsonValue(output);
+  if (jsonValue !== undefined) {
+    return {
+      type: "json",
+      value: jsonValue
+    };
+  }
+
+  return {
+    type: "text",
+    value: stringifyModelToolOutput(output)
+  };
+}
+
+function stringifyModelToolOutput(output: unknown): string {
+  if (typeof output === "string") {
+    return output;
+  }
+
+  if (output instanceof Error) {
+    return output.message;
+  }
+
+  if (output === undefined || typeof output === "function" || typeof output === "symbol") {
+    return String(output);
+  }
+
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return String(output);
+  }
+}
+
+function toJsonValue(value: unknown): JSONValue | undefined {
+  if (value === undefined || typeof value === "function" || typeof value === "symbol") {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(value)) as JSONValue;
+  } catch {
+    return undefined;
+  }
+}
+
+function toSafeRawValue(value: unknown): unknown {
+  if (value instanceof Error) {
+    return toRawObject(value);
+  }
+
+  try {
+    JSON.stringify(value);
+    return value;
+  } catch {
+    return stringifyModelToolOutput(value);
+  }
+}
+
 async function replaySessionHistory(connection: acp.AgentSideConnection, session: SessionState): Promise<void> {
   for (const message of session.history) {
     if (message.role !== "user" && message.role !== "assistant") {
       continue;
     }
 
-    const text = messageContentToText(message.content);
+    const text = message.role === "assistant" ? assistantContentToReplayText(message.content) : messageContentToText(message.content);
     if (!text) {
       continue;
     }
@@ -489,6 +677,23 @@ async function replaySessionHistory(connection: acp.AgentSideConnection, session
       }
     });
   }
+}
+
+function assistantContentToReplayText(content: CoreMessage["content"]): string {
+  if (!Array.isArray(content)) {
+    return messageContentToText(content);
+  }
+
+  return content
+    .map((part) => {
+      if (typeof part === "object" && "type" in part && part.type === "text" && typeof part.text === "string") {
+        return part.text;
+      }
+
+      return "";
+    })
+    .filter((text) => text.length > 0)
+    .join("\n");
 }
 
 function createSessionModeState(modeId: FledglingSessionModeId): acp.SessionModeState {

@@ -93,7 +93,11 @@ export function stringifyToolOutput(output: unknown): string {
     return output;
   }
 
-  return JSON.stringify(output, null, 2);
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return String(output);
+  }
 }
 
 /** Reads a Fledgling context hint from a tool output payload, when present. */
