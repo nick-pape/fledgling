@@ -345,11 +345,12 @@ export class FledglingAgent implements acp.Agent {
             }
 
             case "tool-result": {
+              const safeOutput = toSafeRawValue(part.output);
               flushAssistantToolHistory(session, toolHistory);
               appendToolResultHistory(session, {
                 toolCallId: part.toolCallId,
                 toolName: session.toolCallNames.get(part.toolCallId),
-                output: part.output,
+                output: safeOutput,
                 status: "completed"
               });
               await this.#dependencies.sessionManager.appendEvent({
@@ -359,7 +360,7 @@ export class FledglingAgent implements acp.Agent {
                 toolName: session.toolCallNames.get(part.toolCallId),
                 status: "completed",
                 text: stringifyToolOutput(part.output),
-                rawOutput: part.output,
+                rawOutput: safeOutput,
                 contextHint: extractContextHint(part.output)
               });
               await this.#connection.sessionUpdate({
@@ -377,18 +378,19 @@ export class FledglingAgent implements acp.Agent {
                       }
                     }
                   ],
-                  rawOutput: toRawObject(part.output)
+                  rawOutput: toRawObject(safeOutput)
                 }
               });
               break;
             }
 
             case "tool-error": {
+              const safeError = toSafeRawValue(part.error);
               flushAssistantToolHistory(session, toolHistory);
               appendToolResultHistory(session, {
                 toolCallId: part.toolCallId,
                 toolName: session.toolCallNames.get(part.toolCallId),
-                output: part.error,
+                output: safeError,
                 status: "failed"
               });
               await this.#dependencies.sessionManager.appendEvent({
@@ -398,7 +400,7 @@ export class FledglingAgent implements acp.Agent {
                 toolName: session.toolCallNames.get(part.toolCallId),
                 status: "failed",
                 text: stringifyToolOutput(part.error),
-                rawOutput: toRawObject(part.error),
+                rawOutput: toRawObject(safeError),
                 contextHint: undefined
               });
               await this.#connection.sessionUpdate({
@@ -416,7 +418,7 @@ export class FledglingAgent implements acp.Agent {
                       }
                     }
                   ],
-                  rawOutput: toRawObject(part.error)
+                  rawOutput: toRawObject(safeError)
                 }
               });
               break;
@@ -429,6 +431,8 @@ export class FledglingAgent implements acp.Agent {
         }
 
         const assistantTextPersisted = assistantText.length > 0;
+        flushAssistantToolHistory(session, toolHistory);
+        appendAssistantTextHistory(session, toolHistory);
         if (assistantTextPersisted) {
           await this.#persistAssistantMessage(session, assistantText);
         }
@@ -619,7 +623,11 @@ function stringifyModelToolOutput(output: unknown): string {
     return String(output);
   }
 
-  return JSON.stringify(output, null, 2);
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return String(output);
+  }
 }
 
 function toJsonValue(value: unknown): JSONValue | undefined {
@@ -634,13 +642,26 @@ function toJsonValue(value: unknown): JSONValue | undefined {
   }
 }
 
+function toSafeRawValue(value: unknown): unknown {
+  if (value instanceof Error) {
+    return toRawObject(value);
+  }
+
+  try {
+    JSON.stringify(value);
+    return value;
+  } catch {
+    return stringifyModelToolOutput(value);
+  }
+}
+
 async function replaySessionHistory(connection: acp.AgentSideConnection, session: SessionState): Promise<void> {
   for (const message of session.history) {
     if (message.role !== "user" && message.role !== "assistant") {
       continue;
     }
 
-    const text = messageContentToText(message.content);
+    const text = message.role === "assistant" ? assistantContentToReplayText(message.content) : messageContentToText(message.content);
     if (!text) {
       continue;
     }
@@ -656,6 +677,23 @@ async function replaySessionHistory(connection: acp.AgentSideConnection, session
       }
     });
   }
+}
+
+function assistantContentToReplayText(content: CoreMessage["content"]): string {
+  if (!Array.isArray(content)) {
+    return messageContentToText(content);
+  }
+
+  return content
+    .map((part) => {
+      if (typeof part === "object" && "type" in part && part.type === "text" && typeof part.text === "string") {
+        return part.text;
+      }
+
+      return "";
+    })
+    .filter((text) => text.length > 0)
+    .join("\n");
 }
 
 function createSessionModeState(modeId: FledglingSessionModeId): acp.SessionModeState {
