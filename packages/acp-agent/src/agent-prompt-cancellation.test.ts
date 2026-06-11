@@ -275,6 +275,98 @@ describe("FledglingAgent prompt cancellation", () => {
     );
   });
 
+  it("includes prior successful tool calls and results in later model turns", async () => {
+    const { agent, sessionId, streamText } = await createTestAgent();
+    const capturedMessages: unknown[] = [];
+    streamText.mockImplementation((request: { readonly messages: unknown }) => {
+      capturedMessages.push(JSON.parse(JSON.stringify(request.messages)));
+      return capturedMessages.length === 1
+        ? createImmediateStream([
+            { type: "tool-call", toolCallId: "call-1", toolName: "workspace_read", input: { path: "README.md" } },
+            { type: "tool-call", toolCallId: "call-2", toolName: "workspace_list", input: { path: "." } },
+            { type: "tool-result", toolCallId: "call-1", output: { content: "read ok" } },
+            { type: "tool-result", toolCallId: "call-2", output: { entries: ["README.md"] } },
+            { type: "text-delta", text: "done" }
+          ])
+        : createImmediateStream([]);
+    });
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "inspect" }] });
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "continue" }] });
+
+    expect(capturedMessages[1]).toEqual([
+      { role: "user", content: "inspect" },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "call-1", toolName: "workspace_read", input: { path: "README.md" } },
+          { type: "tool-call", toolCallId: "call-2", toolName: "workspace_list", input: { path: "." } }
+        ]
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            toolName: "workspace_read",
+            output: { type: "json", value: { content: "read ok" } }
+          }
+        ]
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-2",
+            toolName: "workspace_list",
+            output: { type: "json", value: { entries: ["README.md"] } }
+          }
+        ]
+      },
+      { role: "assistant", content: "done" },
+      { role: "user", content: "continue" }
+    ]);
+  });
+
+  it("includes prior failed tool results in later model turns", async () => {
+    const { agent, sessionId, streamText } = await createTestAgent();
+    const capturedMessages: unknown[] = [];
+    streamText.mockImplementation((request: { readonly messages: unknown }) => {
+      capturedMessages.push(JSON.parse(JSON.stringify(request.messages)));
+      return capturedMessages.length === 1
+        ? createImmediateStream([
+            { type: "tool-call", toolCallId: "call-1", toolName: "workspace_write", input: { path: "x" } },
+            { type: "tool-error", toolCallId: "call-1", error: new Error("write failed") }
+          ])
+        : createImmediateStream([]);
+    });
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "write" }] });
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "what failed" }] });
+
+    expect(capturedMessages[1]).toEqual([
+      { role: "user", content: "write" },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call-1", toolName: "workspace_write", input: { path: "x" } }]
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            toolName: "workspace_write",
+            output: { type: "error-text", value: "write failed" }
+          }
+        ]
+      },
+      { role: "user", content: "what failed" }
+    ]);
+  });
+
   it("does not use ACP host filesystem or permission methods during prompt flow", async () => {
     const { manager: sessionManager, sessionFile, tempDir: createdTempDir } = await createTempSessionManager();
     const sessionUpdates: FakeSessionUpdate[] = [];
