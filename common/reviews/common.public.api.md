@@ -78,7 +78,7 @@ export type SessionErrorEvent = SessionEventBase & {
 };
 
 // @public
-export type SessionEvent = SessionCreatedEvent | SessionLoadedEvent | UserMessageEvent | AssistantMessageEvent | ToolCallEvent | ToolResultEvent | SessionErrorEvent | CompactionEvent;
+export type SessionEvent = SessionCreatedEvent | SessionLoadedEvent | SessionModeChangedEvent | UserMessageEvent | AssistantMessageEvent | ToolCallEvent | ToolResultEvent | SessionErrorEvent | CompactionEvent;
 
 // @public
 export interface SessionEventBase {
@@ -92,6 +92,12 @@ export type SessionLoadedEvent = SessionEventBase & {
     readonly type: "session.loaded";
     readonly cwd: string | undefined;
     readonly source: string;
+};
+
+// @public
+export type SessionModeChangedEvent = SessionEventBase & {
+    readonly type: "session.mode_changed";
+    readonly modeId: string;
 };
 
 // @public

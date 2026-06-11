@@ -47,14 +47,14 @@ export function extractPromptText(params: PromptRequest): string;
 // @public
 export class FledglingAgent implements acp.Agent {
     constructor(connection: acp.AgentSideConnection, dependencies: FledglingAgentDependencies);
-    authenticate(_params: acp.AuthenticateRequest): Promise<acp.AuthenticateResponse>;
+    authenticate(params: acp.AuthenticateRequest): Promise<acp.AuthenticateResponse>;
     cancel(_params: acp.CancelNotification): Promise<void>;
     closeAllSessions(reason: string): Promise<void>;
     initialize(_params: acp.InitializeRequest): Promise<acp.InitializeResponse>;
     loadSession(params: acp.LoadSessionRequest): Promise<acp.LoadSessionResponse>;
     newSession(params: acp.NewSessionRequest): Promise<acp.NewSessionResponse>;
     prompt(params: acp.PromptRequest): Promise<acp.PromptResponse>;
-    setSessionMode(_params: acp.SetSessionModeRequest): Promise<acp.SetSessionModeResponse>;
+    setSessionMode(params: acp.SetSessionModeRequest): Promise<acp.SetSessionModeResponse>;
 }
 
 // @public

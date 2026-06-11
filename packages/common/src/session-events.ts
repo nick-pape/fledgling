@@ -19,6 +19,7 @@ export interface ContextMessage {
 export type SessionEvent =
   | SessionCreatedEvent
   | SessionLoadedEvent
+  | SessionModeChangedEvent
   | UserMessageEvent
   | AssistantMessageEvent
   | ToolCallEvent
@@ -72,6 +73,17 @@ export type SessionLoadedEvent = SessionEventBase & {
 
   /** Source that supplied the loaded session data. */
   readonly source: string;
+};
+
+/**
+ * Event recorded when an ACP session mode changes.
+ */
+export type SessionModeChangedEvent = SessionEventBase & {
+  /** Event discriminator. */
+  readonly type: "session.mode_changed";
+
+  /** Active ACP session mode after the change. */
+  readonly modeId: string;
 };
 
 /**

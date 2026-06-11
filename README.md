@@ -83,8 +83,10 @@ Workspace capabilities are MCP-first. File reads, file writes, directory listing
 
 ACP host `readTextFile`, `writeTextFile`, and terminal integration may be added later for hosts that only expose those APIs. Permission prompts for MCP-backed writes and commands are also future work.
 
+Fledgling advertises no ACP authentication methods. Sessions support `read` and `write` modes; `write` is the default, while `read` hides known first-party workspace mutation and command tools from model turns.
+
 ## Current Limitations
 
 - Prompt input is treated mostly as text; rich ACP prompt parts are not yet preserved semantically.
-- ACP authentication, session modes, model selection, and permission prompts are still minimal or stubbed.
+- ACP model selection and permission prompts are still minimal or stubbed.
 - Tool result context hints are recorded but not yet used for full context-store replay.

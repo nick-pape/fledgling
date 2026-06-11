@@ -1,5 +1,6 @@
 import * as acp from "@agentclientprotocol/sdk";
 import { buildContext } from "@fledgling/context-builder";
+import type { SessionEvent } from "@fledgling/common";
 import type { CoreMessage, ToolSet } from "ai";
 
 import type { FledglingAgentDependencies, IClosable } from "./interfaces.js";
@@ -25,9 +26,36 @@ interface SessionState {
   readonly clients: IClosable[];
   readonly tools: ToolSet;
   readonly toolCallNames: Map<string, string>;
+  modeId: FledglingSessionModeId;
   pendingPrompt: AbortController | undefined;
   promptQueue: Promise<void>;
 }
+
+type FledglingSessionModeId = "read" | "write";
+
+const DEFAULT_SESSION_MODE_ID: FledglingSessionModeId = "write";
+
+const SESSION_MODES: readonly acp.SessionMode[] = [
+  {
+    id: "read",
+    name: "Read",
+    description: "Inspect the workspace without file mutations or command execution."
+  },
+  {
+    id: "write",
+    name: "Write",
+    description: "Use all available workspace tools, including writes and command execution."
+  }
+];
+
+const MUTATING_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
+  "workspace_write_file",
+  "workspace_replace_range",
+  "workspace_run_command",
+  "workspace.write_file",
+  "workspace.replace_range",
+  "workspace.run_command"
+]);
 
 /** ACP agent implementation that manages sessions, model turns, tools, and event persistence. */
 export class FledglingAgent implements acp.Agent {
@@ -57,7 +85,8 @@ export class FledglingAgent implements acp.Agent {
           http: true,
           sse: true
         }
-      }
+      },
+      authMethods: []
     };
   }
 
@@ -74,6 +103,7 @@ export class FledglingAgent implements acp.Agent {
       clients,
       tools,
       toolCallNames: new Map(),
+      modeId: DEFAULT_SESSION_MODE_ID,
       pendingPrompt: undefined,
       promptQueue: Promise.resolve()
     };
@@ -87,7 +117,8 @@ export class FledglingAgent implements acp.Agent {
     });
 
     return {
-      sessionId: session.id
+      sessionId: session.id,
+      modes: createSessionModeState(session.modeId)
     };
   }
 
@@ -100,6 +131,7 @@ export class FledglingAgent implements acp.Agent {
       mcpServers: params.mcpServers
     });
     const existingSession = this.#sessions.get(params.sessionId);
+    const modeId = restoreSessionMode(events);
     const session: SessionState = {
       id: params.sessionId,
       cwd: params.cwd,
@@ -107,6 +139,7 @@ export class FledglingAgent implements acp.Agent {
       clients,
       tools,
       toolCallNames: new Map(),
+      modeId,
       pendingPrompt: undefined,
       promptQueue: Promise.resolve()
     };
@@ -124,16 +157,38 @@ export class FledglingAgent implements acp.Agent {
     });
     await replaySessionHistory(this.#connection, session);
 
-    return {};
+    return {
+      modes: createSessionModeState(session.modeId)
+    };
   }
 
   /** Handles ACP authentication requests. */
-  public async authenticate(_params: acp.AuthenticateRequest): Promise<acp.AuthenticateResponse> {
-    return {};
+  public async authenticate(params: acp.AuthenticateRequest): Promise<acp.AuthenticateResponse> {
+    throw new Error(`Unsupported ACP authentication method: ${sanitizeErrorMessage(params.methodId)}`);
   }
 
   /** Accepts ACP session mode updates. */
-  public async setSessionMode(_params: acp.SetSessionModeRequest): Promise<acp.SetSessionModeResponse> {
+  public async setSessionMode(params: acp.SetSessionModeRequest): Promise<acp.SetSessionModeResponse> {
+    const session = this.#sessions.get(params.sessionId);
+    if (!session) {
+      throw new Error(`Unknown ACP session: ${sanitizeErrorMessage(params.sessionId)}`);
+    }
+
+    const modeId = parseSessionModeId(params.modeId);
+    session.modeId = modeId;
+    await this.#dependencies.sessionManager.appendEvent({
+      ...this.#dependencies.sessionManager.createEventBase(session.id),
+      type: "session.mode_changed",
+      modeId
+    });
+    await this.#connection.sessionUpdate({
+      sessionId: session.id,
+      update: {
+        sessionUpdate: "current_mode_update",
+        currentModeId: modeId
+      }
+    });
+
     return {};
   }
 
@@ -180,7 +235,7 @@ export class FledglingAgent implements acp.Agent {
       try {
         result = this.#dependencies.modelTurnRunner.runModelTurn({
           messages: session.history,
-          tools: session.tools,
+          tools: toolsForMode(session.tools, session.modeId),
           abortSignal: promptController.signal
         });
       } catch (error: unknown) {
@@ -417,4 +472,40 @@ async function replaySessionHistory(connection: acp.AgentSideConnection, session
       }
     });
   }
+}
+
+function createSessionModeState(modeId: FledglingSessionModeId): acp.SessionModeState {
+  return {
+    currentModeId: modeId,
+    availableModes: [...SESSION_MODES]
+  };
+}
+
+function parseSessionModeId(modeId: string): FledglingSessionModeId {
+  if (modeId === "read" || modeId === "write") {
+    return modeId;
+  }
+
+  throw new Error(`Unsupported ACP session mode: ${sanitizeErrorMessage(modeId)}`);
+}
+
+function restoreSessionMode(events: readonly SessionEvent[]): FledglingSessionModeId {
+  let modeId: FledglingSessionModeId = DEFAULT_SESSION_MODE_ID;
+  for (const event of events) {
+    if (event.type === "session.mode_changed") {
+      modeId = parseSessionModeId(event.modeId);
+    }
+  }
+
+  return modeId;
+}
+
+function toolsForMode(tools: ToolSet, modeId: FledglingSessionModeId): ToolSet {
+  if (modeId === "write") {
+    return tools;
+  }
+
+  return Object.fromEntries(
+    Object.entries(tools).filter(([toolName]) => !MUTATING_TOOL_NAMES.has(toolName))
+  ) as ToolSet;
 }
