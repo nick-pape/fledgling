@@ -1,4 +1,4 @@
-import type { ContextMessage, SessionEvent } from "@fledgling/common";
+import type { ContextMessage, FledglingModelMessageContent, SessionEvent } from "@fledgling/common";
 
 /**
  * Estimates tokens for plain text using a character-count heuristic.
@@ -11,7 +11,7 @@ export function estimateTextTokens(text: string): number {
  * Estimates tokens for a chat message, including a small per-message overhead.
  */
 export function estimateMessageTokens(message: ContextMessage): number {
-  return estimateTextTokens(message.content) + 4;
+  return estimateTextTokens(messageContentToText(message.content)) + 4;
 }
 
 /**
@@ -19,6 +19,22 @@ export function estimateMessageTokens(message: ContextMessage): number {
  */
 export function estimateMessagesTokens(messages: readonly ContextMessage[]): number {
   return messages.reduce((total, message) => total + estimateMessageTokens(message), 0);
+}
+
+function messageContentToText(content: FledglingModelMessageContent): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  return content
+    .map((part) => {
+      if (part.type === "text") {
+        return part.text;
+      }
+
+      return `[Image: ${part.mimeType}${part.uri ? `, uri: ${part.uri}` : ""}, base64 chars: ${part.data.length}]`;
+    })
+    .join("\n");
 }
 
 /**

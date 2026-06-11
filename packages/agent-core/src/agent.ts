@@ -11,9 +11,11 @@ import {
   sanitizeErrorMessage
 } from "./prompt-errors.js";
 import {
+  convertPromptContent,
   extractContextHint,
-  extractPromptText,
   messageContentToText,
+  persistedContentToModelContent,
+  renderPromptContent,
   stringifyToolOutput,
   toRawObject
 } from "./prompt-content.js";
@@ -84,7 +86,8 @@ export class FledglingAgent implements acp.Agent {
         mcpCapabilities: {
           http: true,
           sse: true
-        }
+        },
+        promptCapabilities: createPromptCapabilities(this.#dependencies)
       },
       authMethods: []
     };
@@ -135,7 +138,20 @@ export class FledglingAgent implements acp.Agent {
     const session: SessionState = {
       id: params.sessionId,
       cwd: params.cwd,
-      history: context.messages.map((message) => ({ role: message.role, content: message.content }) as CoreMessage),
+      history: context.messages.map((message) => {
+        if (message.role === "user") {
+          return {
+            role: "user",
+            content: persistedContentToModelContent(
+              message.content,
+              renderPromptContent(message.content),
+              this.#dependencies.promptContent
+            )
+          } as CoreMessage;
+        }
+
+        return { role: message.role, content: message.content } as CoreMessage;
+      }),
       clients,
       tools,
       toolCallNames: new Map(),
@@ -217,18 +233,19 @@ export class FledglingAgent implements acp.Agent {
   }
 
   async #runPrompt(session: SessionState, params: acp.PromptRequest): Promise<acp.PromptResponse> {
-    const userText = extractPromptText(params);
+    const userPrompt = convertPromptContent(params, this.#dependencies.promptContent);
     const promptController = new AbortController();
     session.pendingPrompt = promptController;
 
     let assistantText = "";
 
     try {
-      session.history.push({ role: "user", content: userText });
+      session.history.push({ role: "user", content: userPrompt.modelContent });
       await this.#dependencies.sessionManager.appendEvent({
         ...this.#dependencies.sessionManager.createEventBase(session.id),
         type: "message.user",
-        text: userText
+        text: userPrompt.text,
+        content: userPrompt.content
       });
 
       let result: ReturnType<FledglingAgentDependencies["modelTurnRunner"]["runModelTurn"]>;
@@ -479,6 +496,10 @@ function createSessionModeState(modeId: FledglingSessionModeId): acp.SessionMode
     currentModeId: modeId,
     availableModes: [...SESSION_MODES]
   };
+}
+
+function createPromptCapabilities(dependencies: FledglingAgentDependencies): acp.PromptCapabilities | undefined {
+  return dependencies.promptContent?.imageInput ? { image: true } : undefined;
 }
 
 function parseSessionModeId(modeId: string): FledglingSessionModeId {

@@ -39,7 +39,7 @@ export type ContextKind = "ephemeral_observation" | "durable_resource" | "worksp
 
 // @public
 export interface ContextMessage {
-    readonly content: string;
+    readonly content: FledglingModelMessageContent;
     readonly role: "user" | "assistant" | "system";
 }
 
@@ -51,6 +51,50 @@ export type ContextRetention = "discard_after_turn" | "summarize_after_turn" | "
 
 // @public
 export function estimateTokens(text: string): number;
+
+// @public
+export interface FledglingImageContentPart {
+    readonly data: string;
+    readonly mimeType: string;
+    readonly type: "image";
+    readonly uri?: string;
+}
+
+// @public
+export type FledglingMessageContent = string | readonly FledglingMessageContentPart[];
+
+// @public
+export type FledglingMessageContentPart = FledglingTextContentPart | FledglingResourceLinkContentPart | FledglingImageContentPart | FledglingUnsupportedContentPart;
+
+// @public
+export type FledglingModelMessageContent = string | readonly FledglingModelMessageContentPart[];
+
+// @public
+export type FledglingModelMessageContentPart = FledglingTextContentPart | FledglingImageContentPart;
+
+// @public
+export interface FledglingResourceLinkContentPart {
+    readonly description?: string;
+    readonly mimeType?: string;
+    readonly name: string;
+    readonly size?: number;
+    readonly title?: string;
+    readonly type: "resource_link";
+    readonly uri: string;
+}
+
+// @public
+export interface FledglingTextContentPart {
+    readonly text: string;
+    readonly type: "text";
+}
+
+// @public
+export interface FledglingUnsupportedContentPart {
+    readonly originalType?: string;
+    readonly raw: unknown;
+    readonly type: "unsupported";
+}
 
 // @public
 export function hashText(text: string): string;
@@ -127,6 +171,7 @@ export type ToolResultEvent = SessionEventBase & {
 export type UserMessageEvent = SessionEventBase & {
     readonly type: "message.user";
     readonly text: string;
+    readonly content?: FledglingMessageContent;
 };
 
 // @public

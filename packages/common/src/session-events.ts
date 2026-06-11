@@ -8,9 +8,101 @@ export interface ContextMessage {
   readonly role: "user" | "assistant" | "system";
 
   /**
-   * Message text content.
+   * Message content.
    */
-  readonly content: string;
+  readonly content: FledglingModelMessageContent;
+}
+
+/**
+ * Model-message content that can be reconstructed from persisted session events.
+ */
+export type FledglingModelMessageContent = string | readonly FledglingModelMessageContentPart[];
+
+/**
+ * Model-message content parts supported by Fledgling.
+ */
+export type FledglingModelMessageContentPart = FledglingTextContentPart | FledglingImageContentPart;
+
+/**
+ * Persisted user-message content.
+ */
+export type FledglingMessageContent = string | readonly FledglingMessageContentPart[];
+
+/**
+ * Structured user-authored content persisted from ACP prompt blocks.
+ */
+export type FledglingMessageContentPart =
+  | FledglingTextContentPart
+  | FledglingResourceLinkContentPart
+  | FledglingImageContentPart
+  | FledglingUnsupportedContentPart;
+
+/**
+ * Text prompt content.
+ */
+export interface FledglingTextContentPart {
+  /** Content discriminator. */
+  readonly type: "text";
+
+  /** Text supplied by the user. */
+  readonly text: string;
+}
+
+/**
+ * Link to a resource referenced by the prompt.
+ */
+export interface FledglingResourceLinkContentPart {
+  /** Content discriminator. */
+  readonly type: "resource_link";
+
+  /** Resource URI. */
+  readonly uri: string;
+
+  /** Resource name supplied by the ACP client. */
+  readonly name: string;
+
+  /** Optional display title. */
+  readonly title?: string;
+
+  /** Optional description. */
+  readonly description?: string;
+
+  /** Optional MIME type. */
+  readonly mimeType?: string;
+
+  /** Optional byte size. */
+  readonly size?: number;
+}
+
+/**
+ * Image prompt content.
+ */
+export interface FledglingImageContentPart {
+  /** Content discriminator. */
+  readonly type: "image";
+
+  /** Base64-encoded image data. */
+  readonly data: string;
+
+  /** Image MIME type. */
+  readonly mimeType: string;
+
+  /** Optional source URI supplied by the ACP client. */
+  readonly uri?: string;
+}
+
+/**
+ * Prompt content that Fledgling does not semantically support yet.
+ */
+export interface FledglingUnsupportedContentPart {
+  /** Content discriminator. */
+  readonly type: "unsupported";
+
+  /** Original ACP block type, when available. */
+  readonly originalType?: string;
+
+  /** JSON-serializable raw block payload. */
+  readonly raw: unknown;
 }
 
 /**
@@ -93,8 +185,11 @@ export type UserMessageEvent = SessionEventBase & {
   /** Event discriminator. */
   readonly type: "message.user";
 
-  /** User-authored message text. */
+  /** Fallback user-authored message text for display, replay, and legacy context. */
   readonly text: string;
+
+  /** Structured user-authored content, when available. */
+  readonly content?: FledglingMessageContent;
 };
 
 /**

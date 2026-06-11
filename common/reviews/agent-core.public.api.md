@@ -6,11 +6,13 @@
 
 import * as acp from '@agentclientprotocol/sdk';
 import type { CoreMessage } from 'ai';
+import type { FledglingMessageContent } from '@fledgling/common';
 import { LanguageModel } from 'ai';
 import type { PromptRequest } from '@agentclientprotocol/sdk';
 import type { SessionErrorEvent } from '@fledgling/common';
 import type { SessionEvent } from '@fledgling/common';
 import { ToolSet } from 'ai';
+import type { UserContent } from 'ai';
 
 // @public
 export class AiSdkModelTurnRunner implements IModelTurnRunner {
@@ -34,6 +36,16 @@ export type AiSdkToolChoice = "auto" | {
 
 // @public
 export function closeClients(clients: readonly IClosable[], reason: string, sessionId?: string | undefined, logger?: IRuntimeLogger): Promise<void>;
+
+// @public
+export interface ConvertedPromptContent {
+    readonly content: FledglingMessageContent;
+    readonly modelContent: UserContent;
+    readonly text: string;
+}
+
+// @public
+export function convertPromptContent(params: PromptRequest, options?: PromptContentOptions): ConvertedPromptContent;
 
 // @public
 export function createPromptRpcError(error: unknown, phase: "model_start" | "model_stream"): Error;
@@ -62,6 +74,9 @@ export interface FledglingAgentDependencies {
     readonly debugStream?: boolean;
     readonly logger?: IRuntimeLogger;
     readonly modelTurnRunner: IModelTurnRunner;
+    readonly promptContent?: {
+        readonly imageInput?: boolean;
+    };
     readonly sessionManager: ISessionManager;
     readonly toolProvider: IToolProvider;
 }
@@ -159,8 +174,16 @@ export interface NormalizedPromptError {
 export function normalizePromptError(error: unknown, kind: PromptErrorKind, phase: PromptErrorPhase): NormalizedPromptError;
 
 // @public
+export function persistedContentToModelContent(content: FledglingMessageContent | undefined, fallbackText: string, options?: PromptContentOptions): UserContent;
+
+// @public
 export interface PromptAbortControllerLike {
     abort(): void;
+}
+
+// @public
+export interface PromptContentOptions {
+    readonly imageInput?: boolean;
 }
 
 // @public
@@ -168,6 +191,9 @@ export type PromptErrorKind = SessionErrorEvent["kind"];
 
 // @public
 export type PromptErrorPhase = SessionErrorEvent["phase"];
+
+// @public
+export function renderPromptContent(content: FledglingMessageContent): string;
 
 // @public
 export function sanitizeErrorMessage(message: string): string;

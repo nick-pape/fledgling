@@ -145,6 +145,26 @@ describe("FledglingAgent prompt cancellation", () => {
     );
   });
 
+  it("advertises image prompt capability only when configured", async () => {
+    const { agent } = await createTestAgent({ promptContent: { imageInput: true } });
+    const withoutImages = await createTestAgent();
+
+    await expect(agent.initialize({ protocolVersion: 1, clientCapabilities: {} } as never)).resolves.toMatchObject({
+      agentCapabilities: {
+        promptCapabilities: {
+          image: true
+        }
+      }
+    });
+    await expect(
+      withoutImages.agent.initialize({ protocolVersion: 1, clientCapabilities: {} } as never)
+    ).resolves.toMatchObject({
+      agentCapabilities: {
+        promptCapabilities: undefined
+      }
+    });
+  });
+
   it("streams text responses and persists user and assistant messages", async () => {
     const { agent, sessionId, streamText, sessionFile, sessionUpdates } = await createTestAgent();
     streamText.mockReturnValueOnce(createImmediateStream([{ type: "text-delta", text: "hello" }]));
@@ -167,6 +187,54 @@ describe("FledglingAgent prompt cancellation", () => {
       expect.objectContaining({ type: "message.user", text: "hi" }),
       expect.objectContaining({ type: "message.assistant", text: "hello" })
     ]);
+  });
+
+  it("preserves rich prompt content while forwarding supported image parts to the model", async () => {
+    const { agent, sessionId, streamText, sessionFile } = await createTestAgent({
+      promptContent: { imageInput: true }
+    });
+    streamText.mockReturnValueOnce(createImmediateStream([{ type: "text-delta", text: "seen" }]));
+
+    await expect(
+      agent.prompt({
+        sessionId,
+        prompt: [
+          { type: "text", text: "Review these." },
+          {
+            type: "resource_link",
+            uri: "file:///repo/README.md",
+            name: "README.md",
+            mimeType: "text/markdown"
+          },
+          { type: "image", data: "aW1hZ2U=", mimeType: "image/png" }
+        ]
+      })
+    ).resolves.toEqual({
+      stopReason: "end_turn"
+    });
+
+    const [[modelRequest]] = streamText.mock.calls as [[{ readonly messages: readonly { readonly content: unknown }[] }]];
+    expect(modelRequest.messages[0]?.content).toEqual([
+      { type: "text", text: "Review these." },
+      { type: "text", text: "[Resource link: README.md <file:///repo/README.md> (text/markdown)]" },
+      { type: "image", image: "aW1hZ2U=", mediaType: "image/png" }
+    ]);
+    expect((await loadStoredEvents(sessionFile))[1]).toEqual(
+      expect.objectContaining({
+        type: "message.user",
+        text: "Review these.\n[Resource link: README.md <file:///repo/README.md> (text/markdown)]\n[Image: image/png, base64 chars: 8]",
+        content: [
+          { type: "text", text: "Review these." },
+          {
+            type: "resource_link",
+            uri: "file:///repo/README.md",
+            name: "README.md",
+            mimeType: "text/markdown"
+          },
+          { type: "image", data: "aW1hZ2U=", mimeType: "image/png" }
+        ]
+      })
+    );
   });
 
   it("emits and persists tool calls, tool results, and tool errors", async () => {
@@ -553,6 +621,31 @@ describe("FledglingAgent prompt cancellation", () => {
     ]);
   });
 
+  it("rebuilds rich user history from stored prompt content when loading a session", async () => {
+    const { agent, sessionId, sessionManager, streamText, tempDir } = await createTestAgent({
+      promptContent: { imageInput: true }
+    });
+    await sessionManager.appendEvent({
+      ...sessionManager.createEventBase(sessionId),
+      type: "message.user",
+      text: "Describe this.\n[Image: image/png, base64 chars: 8]",
+      content: [
+        { type: "text", text: "Describe this." },
+        { type: "image", data: "aW1hZ2U=", mimeType: "image/png" }
+      ]
+    });
+    await agent.loadSession({ sessionId, cwd: tempDir, mcpServers: [] });
+    streamText.mockReturnValueOnce(createImmediateStream([]));
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "Continue." }] });
+
+    const [[modelRequest]] = streamText.mock.calls as [[{ readonly messages: readonly { readonly content: unknown }[] }]];
+    expect(modelRequest.messages[0]?.content).toEqual([
+      { type: "text", text: "Describe this." },
+      { type: "image", image: "aW1hZ2U=", mediaType: "image/png" }
+    ]);
+  });
+
   it("rejects session creation when injected tool setup fails", async () => {
     const { FledglingAgent } = await import("./agent.js");
     const sessionStore = await createTempSessionManager();
@@ -571,7 +664,12 @@ describe("FledglingAgent prompt cancellation", () => {
     await expect(agent.newSession({ cwd: sessionStore.tempDir, mcpServers: [] })).rejects.toThrow("setup failed");
   });
 
-  async function createTestAgent(options: { readonly tools?: ToolSet } = {}): Promise<{
+  async function createTestAgent(
+    options: {
+      readonly tools?: ToolSet;
+      readonly promptContent?: FledglingAgentDependencies["promptContent"];
+    } = {}
+  ): Promise<{
     readonly agent: FledglingAgent;
     readonly sessionId: string;
     readonly sessionFile: string;
@@ -591,7 +689,8 @@ describe("FledglingAgent prompt cancellation", () => {
       sessionManager,
       modelTurnRunner: {
         runModelTurn: streamText
-      }
+      },
+      promptContent: options.promptContent
     } satisfies FledglingAgentDependencies);
     const session = await agent.newSession({ cwd: createdTempDir, mcpServers: [] });
 
